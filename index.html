@@ -1,0 +1,2853 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>午夜回廊：禁忌档案 · 深恐</title>
+    <!-- 引入 Tailwind CSS 与 恐怖氛围字体 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;700;900&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #030305;
+            font-family: 'Noto Serif SC', serif;
+            color: #e2e2e8;
+        }
+        #game-canvas {
+            position: fixed;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            display: block;
+            z-index: 1;
+        }
+        /* 电影胶片颗粒与暗角压迫感 */
+        .horror-vignette {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            z-index: 10;
+            background: radial-gradient(circle at center, transparent 38%, rgba(0, 0, 0, 0.85) 82%, rgba(0, 0, 0, 0.98) 100%);
+            transition: box-shadow 0.2s ease;
+        }
+        .scanlines {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            z-index: 11;
+            background: repeating-linear-gradient(
+                to bottom,
+                rgba(255, 255, 255, 0) 0px,
+                rgba(255, 255, 255, 0) 2px,
+                rgba(0, 0, 0, 0.18) 3px,
+                rgba(0, 0, 0, 0.18) 4px
+            );
+            opacity: 0.5;
+        }
+        /* 惊吓闪烁故障层 */
+        #scare-overlay {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            z-index: 30;
+            opacity: 0;
+            mix-blend-mode: hard-light;
+        }
+        @keyframes glitchFlash {
+            0% { opacity: 0.95; background: rgba(180, 0, 0, 0.6); transform: scale(1.04) skewX(4deg); }
+            20% { opacity: 0.85; background: rgba(255, 255, 255, 0.4); transform: scale(0.98) skewX(-6deg); }
+            40% { opacity: 0.95; background: rgba(130, 0, 0, 0.8); transform: scale(1.06) skewX(3deg); }
+            60% { opacity: 0.7; background: rgba(10, 10, 15, 0.9); transform: scale(1.01); }
+            80% { opacity: 0.9; background: rgba(200, 0, 0, 0.7); transform: scale(1.03) skewX(-3deg); }
+            100% { opacity: 0; transform: scale(1); }
+        }
+        .scare-active {
+            animation: glitchFlash 0.45s infinite;
+        }
+        /* 呼吸与恐惧抖动文字 */
+        @keyframes titleFlicker {
+            0%, 19%, 21%, 23%, 25%, 54%, 56%, 100% {
+                opacity: 1;
+                text-shadow: 0 0 18px rgba(185, 28, 28, 0.9), 0 0 40px rgba(127, 29, 29, 0.6);
+            }
+            20%, 24%, 55% {
+                opacity: 0.45;
+                text-shadow: none;
+            }
+        }
+        .title-flicker {
+            animation: titleFlicker 4.5s infinite;
+        }
+        .mono-font {
+            font-family: 'JetBrains Mono', monospace;
+        }
+        /* 隐藏滚动条 */
+        ::-webkit-scrollbar {
+            width: 4px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #450a0a;
+            border-radius: 2px;
+        }
+        /* 危险感知脉冲边框 */
+        @keyframes dangerPulse {
+            0% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.55); }
+            70% { box-shadow: 0 0 0 18px rgba(220, 38, 38, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); }
+        }
+        .danger-pulse {
+            animation: dangerPulse 1.2s infinite;
+        }
+        /* 手电筒低电量红色警示闪烁 */
+        @keyframes batteryFlicker {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.15; }
+        }
+        .battery-low {
+            animation: batteryFlicker 0.35s infinite;
+        }
+        /* 快速回头按钮的抖动提示 */
+        @keyframes turnHint {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-4px); }
+            75% { transform: translateX(4px); }
+        }
+        .turn-hint {
+            animation: turnHint 0.4s 3;
+        }
+    </style>
+</head>
+<body>
+    <!-- 主 3D 渲染画布 -->
+    <canvas id="game-canvas"></canvas>
+
+    <!-- 视觉滤镜层 -->
+    <div id="vignette" class="horror-vignette"></div>
+    <div class="scanlines"></div>
+    <div id="scare-overlay"></div>
+
+    <!-- 游戏内 HUD 界面 -->
+    <div id="hud" class="fixed inset-0 z-20 pointer-events-none hidden flex flex-col justify-between p-4 sm:p-6">
+        <!-- 顶部栏 -->
+        <div class="flex justify-between items-start gap-4">
+            <!-- 左上角：禁忌档案进度 -->
+            <div class="bg-black/65 backdrop-blur-md border border-red-950/60 rounded-lg p-3 sm:p-4 shadow-2xl max-w-xs">
+                <div class="flex items-center gap-2 mb-1">
+                    <span class="w-2 h-2 rounded-full bg-red-600 animate-ping"></span>
+                    <span class="text-xs tracking-widest text-red-400 uppercase font-bold">禁忌档案收集</span>
+                </div>
+                <div class="flex items-baseline gap-2">
+                    <span id="hud-files-count" class="text-2xl sm:text-3xl font-black text-stone-100 mono-font">0 / 4</span>
+                    <span id="hud-zone-name" class="text-xs text-stone-400 truncate">主回廊 · 东翼</span>
+                </div>
+                <p id="hud-objective" class="text-xs text-stone-300 mt-1.5 leading-relaxed">
+                    搜寻散落在旧校舍各处的4份《禁忌档案》，避开走廊里的“东西”。
+                </p>
+                <div class="mt-2.5 pt-2 border-t border-stone-800/80 flex items-center justify-between text-[11px]">
+                    <span class="text-stone-400">地面声响:</span>
+                    <span id="hud-noise-status" class="mono-font text-emerald-400">静谧 (地砖)</span>
+                </div>
+                <!-- 新增：危险感知条 -->
+                <div class="mt-2 pt-2 border-t border-stone-800/80">
+                    <div class="flex justify-between text-[11px] text-stone-400 mb-0.5">
+                        <span>危险感知</span>
+                        <span id="hud-danger-text" class="mono-font text-emerald-400">安全</span>
+                    </div>
+                    <div class="w-full h-1.5 bg-stone-900 rounded-full overflow-hidden">
+                        <div id="hud-danger-bar" class="h-full bg-emerald-500 transition-all duration-300" style="width: 0%"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 右上角：快捷键功能提示 -->
+            <div class="hidden md:flex flex-col items-end gap-1.5 bg-black/55 backdrop-blur-md border border-stone-800/70 rounded-lg p-3 text-[11px] text-stone-300 mono-font">
+                <div class="text-stone-400 font-bold mb-0.5 tracking-wider">生存操作指南</div>
+                <div><span class="text-red-400">[WASD]</span> 移动 &nbsp;|&nbsp; <span class="text-red-400">[Shift]</span> 奔跑</div>
+                <div><span class="text-red-400">[C / Ctrl]</span> 蹲下潜行 (防木板咔吱)</div>
+                <div><span class="text-red-400">[F]</span> 开关手电 &nbsp;|&nbsp; <span class="text-red-400">[E]</span> 调查档案/开门</div>
+                <div><span class="text-red-400">[Q]</span> 按住屏息 &nbsp;|&nbsp; <span class="text-red-400">[R / 右键]</span> 快速回头</div>
+                <div><span class="text-red-400">[Tab]</span> 查阅已获档案与详情</div>
+                <div class="mt-1 pt-1 border-t border-stone-700/60 text-amber-400/80">新增: [V] 危险感知脉冲 · [X] 紧急闪避</div>
+            </div>
+        </div>
+
+        <!-- 中心准星与交互提示 -->
+        <div class="flex flex-col items-center justify-center my-auto">
+            <div id="crosshair" class="w-1.5 h-1.5 rounded-full bg-stone-200/70 shadow-[0_0_6px_rgba(255,255,255,0.8)] transition-all duration-150"></div>
+            <div id="interact-prompt" class="mt-3 px-3.5 py-1.5 bg-black/80 border border-red-800/80 rounded-md text-xs sm:text-sm text-red-200 tracking-wider hidden shadow-lg">
+                按 <span class="text-red-400 font-bold mono-font">[E]</span> 调查
+            </div>
+            <div id="breath-indicator" class="mt-2 text-xs text-cyan-300/90 tracking-widest hidden animate-pulse">
+                屏住呼吸中... 压低心跳与声响
+            </div>
+            <!-- 新增：危险感知脉冲提示 -->
+            <div id="danger-sense" class="mt-2 text-xs text-red-400/90 tracking-widest hidden animate-pulse font-bold">
+                ⚠ 附近有异常存在
+            </div>
+        </div>
+
+        <!-- 底部栏 -->
+        <div class="flex flex-col md:flex-row items-end justify-between gap-4">
+            <!-- 左下角：生理体征 -->
+            <div class="bg-black/70 backdrop-blur-md border border-stone-800/80 rounded-lg p-3 w-full md:w-72 shadow-2xl">
+                <div class="flex items-center justify-between mb-1">
+                    <span class="text-[11px] text-stone-400 tracking-wider">心率监护 (ECG)</span>
+                    <span id="hud-bpm" class="text-sm font-bold text-red-500 mono-font">72 BPM</span>
+                </div>
+                <canvas id="ecg-canvas" width="240" height="36" class="w-full h-9 bg-stone-950/90 rounded border border-stone-800/60 mb-2.5"></canvas>
+
+                <div class="mb-2">
+                    <div class="flex justify-between text-[11px] text-stone-400 mb-0.5">
+                        <span>体力 / 屏息耐力</span>
+                        <span id="hud-stamina-text" class="mono-font">100%</span>
+                    </div>
+                    <div class="w-full h-1.5 bg-stone-900 rounded-full overflow-hidden">
+                        <div id="hud-stamina-bar" class="h-full bg-stone-300 transition-all duration-75" style="width: 100%"></div>
+                    </div>
+                </div>
+
+                <div>
+                    <div class="flex justify-between text-[11px] text-stone-400 mb-0.5">
+                        <span>手电筒电量 <span id="hud-flashlight-state" class="text-amber-400">[开启]</span></span>
+                        <span id="hud-battery-text" class="mono-font">100%</span>
+                    </div>
+                    <div class="w-full h-1.5 bg-stone-900 rounded-full overflow-hidden">
+                        <div id="hud-battery-bar" class="h-full bg-amber-400 transition-all duration-150" style="width: 100%"></div>
+                    </div>
+                </div>
+                <!-- 新增：紧急闪避冷却指示 -->
+                <div class="mt-2 flex items-center justify-between text-[11px]">
+                    <span class="text-stone-400">紧急闪避 [X]</span>
+                    <span id="hud-dodge-status" class="mono-font text-emerald-400">就绪</span>
+                </div>
+            </div>
+
+            <!-- 底部中央：讲解师无线电字幕框 -->
+            <div id="narrator-box" class="bg-black/80 backdrop-blur-md border border-red-950/80 rounded-lg px-4 py-3 max-w-xl w-full text-center shadow-2xl transition-opacity duration-300 opacity-0">
+                <div class="flex items-center justify-center gap-2 text-[11px] text-red-400 tracking-widest mb-1">
+                    <span>📻 广播室讲解师</span>
+                    <span class="inline-block w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></span>
+                </div>
+                <p id="narrator-text" class="text-sm sm:text-base text-stone-100 leading-relaxed tracking-wide">
+                    “欢迎来到午夜旧校舍……千万别踩响那些腐朽的木地板。”
+                </p>
+            </div>
+
+            <!-- 移动端快捷按钮（新增危险感知与闪避） -->
+            <div class="flex md:hidden flex-wrap justify-end gap-1.5 pointer-events-auto">
+                <button id="btn-mobile-flash" class="px-2.5 py-2 bg-stone-900/90 border border-stone-700 rounded text-xs text-amber-300">手电[F]</button>
+                <button id="btn-mobile-crouch" class="px-2.5 py-2 bg-stone-900/90 border border-stone-700 rounded text-xs text-stone-200">蹲下[C]</button>
+                <button id="btn-mobile-turn" class="px-2.5 py-2 bg-stone-900/90 border border-stone-700 rounded text-xs text-red-300">回头[R]</button>
+                <button id="btn-mobile-interact" class="px-2.5 py-2 bg-red-950/90 border border-red-700 rounded text-xs text-white">调查[E]</button>
+                <button id="btn-mobile-sense" class="px-2.5 py-2 bg-stone-900/90 border border-amber-700 rounded text-xs text-amber-200">感知[V]</button>
+                <button id="btn-mobile-dodge" class="px-2.5 py-2 bg-stone-900/90 border border-red-700 rounded text-xs text-red-200">闪避[X]</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tab 档案与规则面板（保持不变，增加新功能说明） -->
+    <div id="dossier-modal" class="fixed inset-0 z-40 bg-black/85 backdrop-blur-md hidden flex items-center justify-center p-4">
+        <div class="bg-stone-950 border border-red-900/70 rounded-xl max-w-2xl w-full p-6 shadow-2xl max-h-[85vh] overflow-y-auto">
+            <div class="flex justify-between items-center border-b border-stone-800 pb-3 mb-4">
+                <h2 class="text-xl font-bold text-red-500 tracking-wider">《午夜回廊：禁忌档案》调查记录</h2>
+                <button id="btn-close-dossier" class="px-3 py-1 bg-stone-900 hover:bg-stone-800 text-stone-300 rounded text-sm border border-stone-700">
+                    返回游戏 [Tab / Esc]
+                </button>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-5 text-xs">
+                <div class="bg-stone-900/70 p-3 rounded border border-stone-800">
+                    <div class="text-red-400 font-bold mb-1">档案 #01 · 放映室的雪花屏 (贞子)</div>
+                    <p id="lore-0" class="text-stone-400">【尚未收集】旧放映室的黑白电视总在午夜自动亮起，不要直视屏幕太久，也不要轻易背对她。</p>
+                </div>
+                <div class="bg-stone-900/70 p-3 rounded border border-stone-800">
+                    <div class="text-red-400 font-bold mb-1">档案 #02 · 104教室的转校生 (诡异小明)</div>
+                    <p id="lore-1" class="text-stone-400">【尚未收集】他总是歪着脖子微笑。只要你的眼睛和手电光盯着他，他就不敢动……一旦移开视线，他就会贴到你背后。</p>
+                </div>
+                <div class="bg-stone-900/70 p-3 rounded border border-stone-800">
+                    <div class="text-red-400 font-bold mb-1">档案 #03 · 夜间巡逻日志 (王警卫)</div>
+                    <p id="lore-2" class="text-stone-400">【尚未收集】瘸腿的王警卫提着红光手电巡逻。踩响“咔吱咔吱”的腐朽木地板或开灯被他照到，都会招来致命追击。</p>
+                </div>
+                <div class="bg-stone-900/70 p-3 rounded border border-stone-800">
+                    <div class="text-red-400 font-bold mb-1">档案 #04 · 广播室的真相 (讲解师)</div>
+                    <p id="lore-3" class="text-stone-400">【尚未收集】铁栅栏后的讲解师一直在观察这场“实验”，集齐四份档案后，立刻冲向红色安全出口大门！</p>
+                </div>
+            </div>
+
+            <div class="bg-red-950/20 border border-red-900/40 rounded p-3 text-xs text-stone-300 space-y-1 mono-font">
+                <div class="text-red-400 font-bold mb-1">完整按键说明：</div>
+                <p>• WASD / 方向键：前后左右移动（观察地面与墙面可看到你自己的实时影子）</p>
+                <p>• Shift：疾跑（消耗体力，脚步声极大） | C / Ctrl：蹲下潜行（走过木地板不会发出咔吱声）</p>
+                <p>• F：开关手电筒 | Q（按住）：屏住呼吸降低心跳与感知 | R / 鼠标右键：瞬间180°回头</p>
+                <p>• E：调查收集档案 / 开启安全出口大门 | Tab：打开或关闭本档案面板</p>
+                <p class="text-amber-400 mt-1">• 新增 V：危险感知脉冲 — 消耗少量体力，短暂显示附近怪物的红色轮廓（持续2秒，冷却8秒）</p>
+                <p class="text-amber-400">• 新增 X：紧急闪避 — 向当前移动方向快速冲刺一小段距离（冷却6秒，无敌帧0.2秒），可躲避致命抓取！</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- 开始界面（保持不变，增加新提示） -->
+    <div id="start-screen" class="fixed inset-0 z-50 bg-[#040406]/95 flex flex-col items-center justify-center p-6 text-center">
+        <div class="max-w-xl w-full">
+            <div class="inline-block px-3 py-1 mb-4 border border-red-900/80 bg-red-950/30 rounded text-xs tracking-[0.25em] text-red-400 uppercase">
+                第一人称心理生存恐怖 · 3D实时光影
+            </div>
+            <h1 class="text-4xl sm:text-6xl font-black text-stone-100 tracking-wider mb-3 title-flicker">
+                午夜回廊
+            </h1>
+            <h2 class="text-lg sm:text-2xl font-bold text-red-600 tracking-[0.35em] mb-6">
+                禁 忌 档 案 · 深 恐
+            </h2>
+
+            <div class="bg-stone-950/90 border border-stone-800/90 rounded-xl p-5 mb-6 text-left text-xs sm:text-sm text-stone-300 space-y-2.5 shadow-2xl">
+                <p class="text-red-400 font-bold flex items-center gap-2">
+                    <span>⚠️ 恐怖与感官预警：</span>
+                </p>
+                <p>• 本作包含<span class="text-stone-100 font-semibold">高能贴脸惊吓 (Jump Scare)</span>、闪烁灯光、诡异恐怖谷角色与压迫性心跳音效。</p>
+                <p>• <span class="text-amber-300 font-semibold">建议佩戴耳机游玩</span>：通过脚步回响、腐朽木地板的<span class="text-amber-200">“咔吱咔吱”</span>呻吟声及讲解师广播判断危机。</p>
+                <p>• 留意灯光下<span class="text-stone-100 font-semibold">你自己的影子</span>——有时墙上的影子，并不止你一个人。</p>
+                <p class="text-amber-400/90 mt-1 text-[11px]">新增：按 V 使用危险感知，按 X 紧急闪避，被追击时或许能救你一命。</p>
+            </div>
+
+            <button id="btn-start-game" class="w-full sm:w-auto px-10 py-4 bg-red-900 hover:bg-red-800 active:scale-95 text-stone-100 font-bold text-base sm:text-lg tracking-[0.2em] rounded-lg border border-red-600/80 shadow-[0_0_30px_rgba(185,28,28,0.5)] transition-all cursor-pointer">
+                推开铁门 · 进入回廊
+            </button>
+            <p class="mt-4 text-[11px] text-stone-500 mono-font">
+                点击开始后将自动锁定鼠标视角（若浏览器限制锁定，可按住鼠标左键拖拽环顾四周）
+            </p>
+        </div>
+    </div>
+
+    <!-- 死亡 / Jump Scare 结算界面 -->
+    <div id="gameover-screen" class="fixed inset-0 z-50 bg-black/95 hidden flex flex-col items-center justify-center p-6 text-center">
+        <div class="max-w-md w-full border border-red-900/80 bg-stone-950/95 rounded-xl p-7 shadow-[0_0_60px_rgba(153,27,27,0.45)]">
+            <div class="text-xs tracking-[0.3em] text-red-500 uppercase mb-2">档案记录终止</div>
+            <h2 id="gameover-title" class="text-3xl sm:text-4xl font-black text-red-600 mb-3 tracking-wider">你被留在了回廊里</h2>
+            <p id="gameover-reason" class="text-sm text-stone-300 mb-6 leading-relaxed">
+                在腐朽木地板发出声响的那一刻，黑暗中的存在已经锁定了你的位置。
+            </p>
+            <div class="bg-black/60 rounded-lg p-3 mb-6 text-xs text-stone-400 mono-font flex justify-around border border-stone-800">
+                <div>已收集档案: <span id="end-files" class="text-stone-100 font-bold">0/4</span></div>
+                <div>存活时间: <span id="end-time" class="text-stone-100 font-bold">00:00</span></div>
+            </div>
+            <button id="btn-restart-death" class="w-full py-3.5 bg-red-900 hover:bg-red-800 text-white font-bold tracking-widest rounded-lg border border-red-600 transition cursor-pointer">
+                再次直面恐惧
+            </button>
+        </div>
+    </div>
+
+    <!-- 通关逃脱界面 -->
+    <div id="victory-screen" class="fixed inset-0 z-50 bg-black/95 hidden flex flex-col items-center justify-center p-6 text-center">
+        <div class="max-w-lg w-full border border-emerald-900/70 bg-stone-950/95 rounded-xl p-7 shadow-[0_0_50px_rgba(6,95,70,0.35)]">
+            <div class="text-xs tracking-[0.3em] text-emerald-400 uppercase mb-2">真相已带出禁区</div>
+            <h2 class="text-3xl sm:text-4xl font-black text-stone-100 mb-3 tracking-wider">逃出生天</h2>
+            <p class="text-sm text-stone-300 mb-5 leading-relaxed">
+                你推开了沉重的安全出口铁门，冰冷的月光洒在身上。身后的广播室传来讲解师低沉的笑声：<br>
+                <span class="text-red-400 italic">“档案虽然被你带走了……但他们的影子，已经记住你的气息了。”</span>
+            </p>
+            <div class="bg-black/60 rounded-lg p-3 mb-6 text-xs text-stone-400 mono-font flex justify-around border border-stone-800">
+                <div>档案完整度: <span class="text-emerald-400 font-bold">4 / 4 (100%)</span></div>
+                <div>逃生耗时: <span id="win-time" class="text-stone-100 font-bold">00:00</span></div>
+            </div>
+            <button id="btn-restart-win" class="w-full py-3.5 bg-stone-800 hover:bg-stone-700 text-white font-bold tracking-widest rounded-lg border border-stone-600 transition cursor-pointer">
+                再次挑战午夜回廊
+            </button>
+        </div>
+    </div>
+
+    <script>
+    /**
+     * ============================================================================
+     * 《午夜回廊：禁忌档案 · 深恐》核心引擎 (Three.js + Web Audio API 纯代码构建)
+     * 在初版基础上改进：
+     *   - 增强氛围：更浓的雾、更暗的色调、粒子尘埃增多、血色滤镜动态
+     *   - 提升角色真实感：贞子更细致的长发与惨白皮肤、小明面部纹理优化、
+     *     王警卫装备与瘸腿动画细化、讲解师姿态与追踪
+     *   - 新增功能：危险感知（V）、紧急闪避（X）、动态危险HUD条、音效增强
+     * ============================================================================
+     */
+
+    // ============================================================================
+    // 第一部分：Web Audio API 恐怖音效与无缝循环 BGM 合成引擎（增强版）
+    // ============================================================================
+    class HorrorAudioEngine {
+        constructor() {
+            this.ctx = null;
+            this.masterGain = null;
+            this.bgmSource = null;
+            this.bgmGain = null;
+            this.isInitialized = false;
+            this.lastHeartbeatTime = 0;
+            this.tinnitusOsc = null;
+            this.tinnitusGain = null;
+            // 新增：环境风声LFO
+            this.windLfo = null;
+            this.windGain = null;
+        }
+
+        init() {
+            if (this.isInitialized) {
+                if (this.ctx && this.ctx.state === 'suspended') {
+                    this.ctx.resume();
+                }
+                return;
+            }
+            const AudioCtx = window.AudioContext || window.webkitAudioContext;
+            this.ctx = new AudioCtx();
+
+            this.masterGain = this.ctx.createGain();
+            this.masterGain.gain.value = 0.88;
+            this.masterGain.connect(this.ctx.destination);
+
+            // 危险耳鸣
+            this.tinnitusOsc = this.ctx.createOscillator();
+            this.tinnitusOsc.type = 'sine';
+            this.tinnitusOsc.frequency.value = 3950;
+            this.tinnitusGain = this.ctx.createGain();
+            this.tinnitusGain.gain.value = 0.0;
+            this.tinnitusOsc.connect(this.tinnitusGain);
+            this.tinnitusGain.connect(this.masterGain);
+            this.tinnitusOsc.start();
+
+            // 新增：持续环境风声（低通滤波噪声 + LFO调制）
+            this.startAmbientWind();
+
+            // 启动无缝循环恐怖 BGM
+            this.startSeamlessHorrorBGM();
+            this.isInitialized = true;
+        }
+
+        startAmbientWind() {
+            const bufferSize = 4 * this.ctx.sampleRate;
+            const noiseBuffer = this.ctx.createBuffer(2, bufferSize, this.ctx.sampleRate);
+            const left = noiseBuffer.getChannelData(0);
+            const right = noiseBuffer.getChannelData(1);
+            for (let i = 0; i < bufferSize; i++) {
+                left[i] = Math.random() * 2 - 1;
+                right[i] = Math.random() * 2 - 1;
+            }
+            const noiseSrc = this.ctx.createBufferSource();
+            noiseSrc.buffer = noiseBuffer;
+            noiseSrc.loop = true;
+
+            const filter = this.ctx.createBiquadFilter();
+            filter.type = 'lowpass';
+            filter.frequency.value = 280;
+            filter.Q.value = 0.8;
+
+            const gain = this.ctx.createGain();
+            gain.gain.value = 0.035;
+
+            // LFO 调制风声强弱
+            this.windLfo = this.ctx.createOscillator();
+            this.windLfo.type = 'sine';
+            this.windLfo.frequency.value = 0.07;
+            this.windGain = this.ctx.createGain();
+            this.windGain.gain.value = 0.015;
+            this.windLfo.connect(this.windGain);
+            this.windGain.connect(gain.gain);
+
+            noiseSrc.connect(filter);
+            filter.connect(gain);
+            gain.connect(this.masterGain);
+
+            noiseSrc.start(0);
+            this.windLfo.start(0);
+        }
+
+        startSeamlessHorrorBGM() {
+            const sampleRate = this.ctx.sampleRate;
+            const duration = 12.0;
+            const totalSamples = Math.floor(sampleRate * duration);
+            const crossfadeSamples = Math.floor(sampleRate * 1.5);
+
+            const buffer = this.ctx.createBuffer(2, totalSamples, sampleRate);
+            const left = buffer.getChannelData(0);
+            const right = buffer.getChannelData(1);
+
+            const rawL = new Float32Array(totalSamples + crossfadeSamples);
+            const rawR = new Float32Array(totalSamples + crossfadeSamples);
+
+            let noiseStateL = 0;
+            let noiseStateR = 0;
+
+            for (let i = 0; i < rawL.length; i++) {
+                const t = i / sampleRate;
+
+                const sub1 = Math.sin(2 * Math.PI * 36.0 * t);
+                const sub2 = Math.sin(2 * Math.PI * 54.0 * t + Math.sin(2 * Math.PI * 0.25 * t) * 1.2);
+
+                const lfo = 0.5 + 0.5 * Math.sin(2 * Math.PI * (1 / 6.0) * t);
+                const eerieL = Math.sin(2 * Math.PI * 220.0 * t + Math.sin(2 * Math.PI * 110.0 * t) * 0.4) * 0.09 * lfo;
+                const eerieR = Math.sin(2 * Math.PI * 311.127 * t + Math.sin(2 * Math.PI * 155.56 * t) * 0.45) * 0.08 * (1.0 - lfo * 0.6);
+
+                const whiteL = (Math.random() * 2 - 1);
+                const whiteR = (Math.random() * 2 - 1);
+                noiseStateL = noiseStateL * 0.985 + whiteL * 0.015;
+                noiseStateR = noiseStateR * 0.985 + whiteR * 0.015;
+
+                const pulseEnv = Math.exp(-((t % 6.0) * 1.8)) * 0.15;
+                const pulse = Math.sin(2 * Math.PI * 65.0 * t) * pulseEnv;
+
+                rawL[i] = (sub1 * 0.24 + sub2 * 0.16 + eerieL + noiseStateL * 0.48 + pulse) * 0.68;
+                rawR[i] = (sub1 * 0.24 + sub2 * 0.16 + eerieR + noiseStateR * 0.48 + pulse) * 0.68;
+            }
+
+            for (let i = 0; i < totalSamples; i++) {
+                if (i < crossfadeSamples) {
+                    const fade = i / crossfadeSamples;
+                    const tailIdx = totalSamples + i;
+                    left[i] = rawL[i] * fade + rawL[tailIdx] * (1 - fade);
+                    right[i] = rawR[i] * fade + rawR[tailIdx] * (1 - fade);
+                } else {
+                    left[i] = rawL[i];
+                    right[i] = rawR[i];
+                }
+            }
+
+            this.bgmSource = this.ctx.createBufferSource();
+            this.bgmSource.buffer = buffer;
+            this.bgmSource.loop = true;
+
+            this.bgmGain = this.ctx.createGain();
+            this.bgmGain.gain.value = 0.78;
+
+            this.bgmSource.connect(this.bgmGain);
+            this.bgmGain.connect(this.masterGain);
+            this.bgmSource.start(0);
+        }
+
+        playFootstep(isWoodCreak, isRunning, isCrouching) {
+            if (!this.isInitialized) return;
+            const now = this.ctx.currentTime;
+            const volScale = isCrouching ? 0.2 : (isRunning ? 1.2 : 0.7);
+
+            const thudOsc = this.ctx.createOscillator();
+            const thudGain = this.ctx.createGain();
+            thudOsc.type = 'triangle';
+            thudOsc.frequency.setValueAtTime(isWoodCreak ? 95 : 130, now);
+            thudOsc.frequency.exponentialRampToValueAtTime(32, now + 0.11);
+
+            thudGain.gain.setValueAtTime(0.3 * volScale, now);
+            thudGain.gain.exponentialRampToValueAtTime(0.001, now + 0.13);
+
+            thudOsc.connect(thudGain);
+            thudGain.connect(this.masterGain);
+            thudOsc.start(now);
+            thudOsc.stop(now + 0.14);
+
+            if (isWoodCreak && !isCrouching) {
+                this.playWoodCreakSound(now, isRunning ? 1.1 : 0.8);
+            } else if (!isWoodCreak) {
+                this.playTileTapNoise(now, volScale * 0.24);
+            }
+        }
+
+        playWoodCreakSound(startTime, intensity = 0.8) {
+            const duration = 0.36;
+            const creakOsc = this.ctx.createOscillator();
+            const modOsc = this.ctx.createOscillator();
+            const modGain = this.ctx.createGain();
+            const filter = this.ctx.createBiquadFilter();
+            const gain = this.ctx.createGain();
+
+            creakOsc.type = 'sawtooth';
+            const baseFreq = 240 + Math.random() * 90;
+            creakOsc.frequency.setValueAtTime(baseFreq, startTime);
+            creakOsc.frequency.linearRampToValueAtTime(baseFreq * 0.68, startTime + duration * 0.55);
+            creakOsc.frequency.linearRampToValueAtTime(baseFreq * 0.82, startTime + duration);
+
+            modOsc.type = 'square';
+            modOsc.frequency.setValueAtTime(28 + Math.random() * 14, startTime);
+            modGain.gain.setValueAtTime(45, startTime);
+            modOsc.connect(modGain);
+            modGain.connect(creakOsc.frequency);
+
+            filter.type = 'bandpass';
+            filter.frequency.setValueAtTime(620, startTime);
+            filter.Q.value = 4.8;
+
+            gain.gain.setValueAtTime(0.001, startTime);
+            gain.gain.linearRampToValueAtTime(0.34 * intensity, startTime + 0.04);
+            gain.gain.linearRampToValueAtTime(0.19 * intensity, startTime + 0.16);
+            gain.gain.linearRampToValueAtTime(0.3 * intensity, startTime + 0.22);
+            gain.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
+
+            creakOsc.connect(filter);
+            filter.connect(gain);
+            gain.connect(this.masterGain);
+
+            creakOsc.start(startTime);
+            modOsc.start(startTime);
+            creakOsc.stop(startTime + duration + 0.02);
+            modOsc.stop(startTime + duration + 0.02);
+        }
+
+        playTileTapNoise(startTime, volume) {
+            const bufferSize = Math.floor(this.ctx.sampleRate * 0.06);
+            const buf = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+            const data = buf.getChannelData(0);
+            for (let i = 0; i < bufferSize; i++) {
+                data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufferSize * 0.25));
+            }
+            const src = this.ctx.createBufferSource();
+            src.buffer = buf;
+
+            const filter = this.ctx.createBiquadFilter();
+            filter.type = 'highpass';
+            filter.frequency.value = 1400;
+
+            const gain = this.ctx.createGain();
+            gain.gain.value = volume;
+
+            src.connect(filter);
+            filter.connect(gain);
+            gain.connect(this.masterGain);
+            src.start(startTime);
+        }
+
+        playFlashlightClick() {
+            if (!this.isInitialized) return;
+            const now = this.ctx.currentTime;
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+            osc.type = 'square';
+            osc.frequency.setValueAtTime(1650, now);
+            osc.frequency.exponentialRampToValueAtTime(320, now + 0.035);
+            gain.gain.setValueAtTime(0.24, now);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.04);
+            osc.connect(gain);
+            gain.connect(this.masterGain);
+            osc.start(now);
+            osc.stop(now + 0.045);
+        }
+
+        playPaperCollect() {
+            if (!this.isInitialized) return;
+            const now = this.ctx.currentTime;
+            const len = Math.floor(this.ctx.sampleRate * 0.35);
+            const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+            const d = buf.getChannelData(0);
+            for (let i = 0; i < len; i++) {
+                d[i] = (Math.random() * 2 - 1) * Math.sin((i / len) * Math.PI);
+            }
+            const src = this.ctx.createBufferSource();
+            src.buffer = buf;
+            const filt = this.ctx.createBiquadFilter();
+            filt.type = 'bandpass';
+            filt.frequency.value = 2400;
+            const g = this.ctx.createGain();
+            g.gain.value = 0.38;
+            src.connect(filt);
+            filt.connect(g);
+            g.connect(this.masterGain);
+            src.start(now);
+
+            [110, 155.56].forEach(freq => {
+                const o = this.ctx.createOscillator();
+                const og = this.ctx.createGain();
+                o.type = 'sine';
+                o.frequency.value = freq;
+                og.gain.setValueAtTime(0.001, now);
+                og.gain.linearRampToValueAtTime(0.2, now + 0.15);
+                og.gain.exponentialRampToValueAtTime(0.001, now + 1.4);
+                o.connect(og);
+                og.connect(this.masterGain);
+                o.start(now);
+                o.stop(now + 1.45);
+            });
+        }
+
+        playGuardKeys(distance) {
+            if (!this.isInitialized || distance > 18) return;
+            const now = this.ctx.currentTime;
+            const vol = Math.max(0, 1 - distance / 18) * 0.18;
+            [2800, 3450, 4120].forEach((freq, idx) => {
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'sine';
+                osc.frequency.value = freq + Math.random() * 120;
+                gain.gain.setValueAtTime(vol, now + idx * 0.025);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.025 + 0.09);
+                osc.connect(gain);
+                gain.connect(this.masterGain);
+                osc.start(now + idx * 0.025);
+                osc.stop(now + idx * 0.025 + 0.1);
+            });
+        }
+
+        playGuardWhistle() {
+            if (!this.isInitialized) return;
+            const now = this.ctx.currentTime;
+            const osc = this.ctx.createOscillator();
+            const lfo = this.ctx.createOscillator();
+            const lfoGain = this.ctx.createGain();
+            const gain = this.ctx.createGain();
+
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(2650, now);
+            osc.frequency.linearRampToValueAtTime(2880, now + 0.15);
+            osc.frequency.linearRampToValueAtTime(2550, now + 0.65);
+
+            lfo.frequency.value = 38;
+            lfoGain.gain.value = 95;
+            lfo.connect(lfoGain);
+            lfoGain.connect(osc.frequency);
+
+            gain.gain.setValueAtTime(0.01, now);
+            gain.gain.linearRampToValueAtTime(0.38, now + 0.05);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.7);
+
+            osc.connect(gain);
+            gain.connect(this.masterGain);
+            osc.start(now);
+            lfo.start(now);
+            osc.stop(now + 0.72);
+            lfo.stop(now + 0.72);
+        }
+
+        playTVStaticBurst(volume = 0.25, duration = 0.45) {
+            if (!this.isInitialized) return;
+            const now = this.ctx.currentTime;
+            const len = Math.floor(this.ctx.sampleRate * duration);
+            const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+            const data = buf.getChannelData(0);
+            for (let i = 0; i < len; i++) {
+                data[i] = (Math.random() * 2 - 1);
+            }
+            const src = this.ctx.createBufferSource();
+            src.buffer = buf;
+
+            const filter = this.ctx.createBiquadFilter();
+            filter.type = 'bandpass';
+            filter.frequency.value = 1800;
+            filter.Q.value = 0.8;
+
+            const gain = this.ctx.createGain();
+            gain.gain.setValueAtTime(volume, now);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+
+            src.connect(filter);
+            filter.connect(gain);
+            gain.connect(this.masterGain);
+            src.start(now);
+        }
+
+        playNarratorRadioVoice(duration = 1.6) {
+            if (!this.isInitialized) return;
+            const now = this.ctx.currentTime;
+            this.playTVStaticBurst(0.15, 0.22);
+
+            const carrier = this.ctx.createOscillator();
+            const formant = this.ctx.createBiquadFilter();
+            const gain = this.ctx.createGain();
+
+            carrier.type = 'sawtooth';
+            carrier.frequency.setValueAtTime(108, now);
+
+            formant.type = 'bandpass';
+            formant.frequency.setValueAtTime(520, now);
+            formant.Q.value = 5.0;
+
+            gain.gain.setValueAtTime(0.001, now);
+            const syllables = Math.floor(duration / 0.22);
+            for (let i = 0; i < syllables; i++) {
+                const st = now + i * 0.22;
+                const pitch = 95 + Math.random() * 28;
+                carrier.frequency.setValueAtTime(pitch, st);
+                carrier.frequency.linearRampToValueAtTime(pitch * 0.85, st + 0.16);
+                formant.frequency.setValueAtTime(420 + Math.random() * 350, st);
+
+                gain.gain.linearRampToValueAtTime(0.14, st + 0.04);
+                gain.gain.linearRampToValueAtTime(0.02, st + 0.19);
+            }
+            gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+
+            carrier.connect(formant);
+            formant.connect(gain);
+            gain.connect(this.masterGain);
+
+            carrier.start(now);
+            carrier.stop(now + duration + 0.05);
+        }
+
+        updateHeartbeatAndFear(dangerLevel, isHoldingBreath) {
+            if (!this.isInitialized) return;
+            const now = this.ctx.currentTime;
+            const effectiveDanger = isHoldingBreath ? dangerLevel * 0.35 : dangerLevel;
+
+            if (this.tinnitusGain) {
+                const targetTin = effectiveDanger > 0.45 ? (effectiveDanger - 0.45) * 0.1 : 0.0;
+                this.tinnitusGain.gain.setTargetAtTime(targetTin, now, 0.15);
+            }
+
+            if (effectiveDanger < 0.15) return;
+
+            const bpm = 70 + effectiveDanger * 95;
+            const interval = 60 / bpm;
+
+            if (now - this.lastHeartbeatTime >= interval) {
+                this.lastHeartbeatTime = now;
+                const vol = Math.min(0.6, effectiveDanger * 0.7);
+
+                this.triggerHeartThump(now, 58, vol);
+                this.triggerHeartThump(now + 0.15, 48, vol * 0.8);
+            }
+        }
+
+        triggerHeartThump(time, freq, vol) {
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(freq, time);
+            osc.frequency.exponentialRampToValueAtTime(24, time + 0.12);
+
+            gain.gain.setValueAtTime(vol, time);
+            gain.gain.exponentialRampToValueAtTime(0.001, time + 0.14);
+
+            osc.connect(gain);
+            gain.connect(this.masterGain);
+            osc.start(time);
+            osc.stop(time + 0.15);
+        }
+
+        playJumpScareBlast() {
+            if (!this.isInitialized) return;
+            const now = this.ctx.currentTime;
+            const duration = 1.7;
+
+            const subOsc = this.ctx.createOscillator();
+            const subGain = this.ctx.createGain();
+            subOsc.type = 'sawtooth';
+            subOsc.frequency.setValueAtTime(115, now);
+            subOsc.frequency.exponentialRampToValueAtTime(24, now + 0.85);
+            subGain.gain.setValueAtTime(0.9, now);
+            subGain.gain.exponentialRampToValueAtTime(0.001, now + 1.1);
+            subOsc.connect(subGain);
+            subGain.connect(this.masterGain);
+            subOsc.start(now);
+            subOsc.stop(now + 1.15);
+
+            const freqs = [784, 830.6, 1174.6, 1661.2, 2349.3];
+            freqs.forEach(f => {
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(f * 1.15, now);
+                osc.frequency.linearRampToValueAtTime(f * 0.88, now + duration);
+
+                gain.gain.setValueAtTime(0.24, now);
+                gain.gain.setValueAtTime(0.28, now + 0.25);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+
+                osc.connect(gain);
+                gain.connect(this.masterGain);
+                osc.start(now);
+                osc.stop(now + duration + 0.05);
+            });
+
+            this.playTVStaticBurst(0.7, 1.3);
+        }
+
+        /**
+         * 新增：危险感知脉冲音效
+         */
+        playDangerSensePulse() {
+            if (!this.isInitialized) return;
+            const now = this.ctx.currentTime;
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(880, now);
+            osc.frequency.exponentialRampToValueAtTime(440, now + 0.5);
+            gain.gain.setValueAtTime(0.18, now);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.55);
+            osc.connect(gain);
+            gain.connect(this.masterGain);
+            osc.start(now);
+            osc.stop(now + 0.56);
+
+            // 伴随一声低沉的“嗡”
+            const lowOsc = this.ctx.createOscillator();
+            const lowGain = this.ctx.createGain();
+            lowOsc.type = 'triangle';
+            lowOsc.frequency.value = 110;
+            lowGain.gain.setValueAtTime(0.12, now);
+            lowGain.gain.exponentialRampToValueAtTime(0.001, now + 0.9);
+            lowOsc.connect(lowGain);
+            lowGain.connect(this.masterGain);
+            lowOsc.start(now);
+            lowOsc.stop(now + 0.95);
+        }
+
+        /**
+         * 新增：紧急闪避嗖声
+         */
+        playDodgeWhoosh() {
+            if (!this.isInitialized) return;
+            const now = this.ctx.currentTime;
+            const len = Math.floor(this.ctx.sampleRate * 0.25);
+            const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+            const d = buf.getChannelData(0);
+            for (let i = 0; i < len; i++) {
+                d[i] = (Math.random() * 2 - 1) * Math.sin((i / len) * Math.PI);
+            }
+            const src = this.ctx.createBufferSource();
+            src.buffer = buf;
+            const filter = this.ctx.createBiquadFilter();
+            filter.type = 'highpass';
+            filter.frequency.value = 800;
+            const gain = this.ctx.createGain();
+            gain.gain.setValueAtTime(0.22, now);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+            src.connect(filter);
+            filter.connect(gain);
+            gain.connect(this.masterGain);
+            src.start(now);
+        }
+    }
+
+    // ============================================================================
+    // 第二部分：程序化高清恐怖材质生成器（增强细节）
+    // ============================================================================
+    const ProceduralTextures = {
+        createTileTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 512;
+            canvas.height = 512;
+            const ctx = canvas.getContext('2d');
+
+            ctx.fillStyle = '#1f2226';
+            ctx.fillRect(0, 0, 512, 512);
+
+            const step = 128;
+            for (let x = 0; x < 512; x += step) {
+                for (let y = 0; y < 512; y += step) {
+                    const shade = 30 + Math.floor(Math.random() * 16);
+                    ctx.fillStyle = `rgb(${shade}, ${shade + 2}, ${shade + 4})`;
+                    ctx.fillRect(x + 2, y + 2, step - 4, step - 4);
+
+                    if (Math.random() > 0.35) {
+                        ctx.fillStyle = 'rgba(6, 8, 6, 0.45)';
+                        ctx.beginPath();
+                        ctx.arc(x + Math.random() * step, y + Math.random() * step, 14 + Math.random() * 30, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+                }
+            }
+            ctx.strokeStyle = 'rgba(5, 5, 8, 0.8)';
+            ctx.lineWidth = 2;
+            for (let i = 0; i < 18; i++) {
+                ctx.beginPath();
+                let cx = Math.random() * 512;
+                let cy = Math.random() * 512;
+                ctx.moveTo(cx, cy);
+                for (let s = 0; s < 6; s++) {
+                    cx += (Math.random() - 0.5) * 50;
+                    cy += (Math.random() - 0.5) * 50;
+                    ctx.lineTo(cx, cy);
+                }
+                ctx.stroke();
+            }
+
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.wrapS = THREE.RepeatWrapping;
+            tex.wrapT = THREE.RepeatWrapping;
+            tex.repeat.set(16, 16);
+            return tex;
+        },
+
+        createCreakyWoodTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 512;
+            canvas.height = 512;
+            const ctx = canvas.getContext('2d');
+
+            ctx.fillStyle = '#241812';
+            ctx.fillRect(0, 0, 512, 512);
+
+            const planks = 8;
+            const plankH = 512 / planks;
+            for (let i = 0; i < planks; i++) {
+                const y = i * plankH;
+                const r = 38 + Math.floor(Math.random() * 24);
+                const g = 22 + Math.floor(Math.random() * 16);
+                const b = 12 + Math.floor(Math.random() * 12);
+                ctx.fillStyle = `rgb(${r},${g},${b})`;
+                ctx.fillRect(0, y + 2, 512, plankH - 4);
+
+                ctx.strokeStyle = 'rgba(12, 6, 3, 0.55)';
+                ctx.lineWidth = 1.8;
+                for (let w = 0; w < 7; w++) {
+                    ctx.beginPath();
+                    ctx.moveTo(0, y + 6 + w * 9);
+                    ctx.bezierCurveTo(170, y + 2 + w * 9, 340, y + 12 + w * 9, 512, y + 6 + w * 9);
+                    ctx.stroke();
+                }
+
+                ctx.fillStyle = '#070402';
+                ctx.fillRect(0, y, 512, 3);
+            }
+
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.wrapS = THREE.RepeatWrapping;
+            tex.wrapT = THREE.RepeatWrapping;
+            tex.repeat.set(2, 2);
+            return tex;
+        },
+
+        createWallTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 512;
+            canvas.height = 512;
+            const ctx = canvas.getContext('2d');
+
+            ctx.fillStyle = '#3d3f42';
+            ctx.fillRect(0, 0, 512, 290);
+            ctx.fillStyle = '#1a2420';
+            ctx.fillRect(0, 290, 512, 222);
+
+            ctx.fillStyle = '#100e0c';
+            ctx.fillRect(0, 284, 512, 12);
+
+            for (let i = 0; i < 60; i++) {
+                const x = Math.random() * 512;
+                const y = Math.random() * 512;
+                const w = 8 + Math.random() * 50;
+                const h = 18 + Math.random() * 100;
+                ctx.fillStyle = Math.random() > 0.3 ? 'rgba(10, 12, 11, 0.32)' : 'rgba(50, 10, 10, 0.2)';
+                ctx.fillRect(x, y, w, h);
+            }
+
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.wrapS = THREE.RepeatWrapping;
+            tex.wrapT = THREE.RepeatWrapping;
+            tex.repeat.set(8, 1);
+            return tex;
+        },
+
+        createXiaoMingFaceTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 256;
+            canvas.height = 256;
+            const ctx = canvas.getContext('2d');
+
+            // 更惨白、更蜡质的皮肤
+            ctx.fillStyle = '#e0ded8';
+            ctx.fillRect(0, 0, 256, 256);
+
+            // 眼周更深的青黑浮肿
+            const drawHollowEye = (cx, cy) => {
+                const grad = ctx.createRadialGradient(cx, cy, 4, cx, cy, 38);
+                grad.addColorStop(0, '#010101');
+                grad.addColorStop(0.6, '#0c0a10');
+                grad.addColorStop(1, 'rgba(224,222,216,0)');
+                ctx.fillStyle = grad;
+                ctx.beginPath();
+                ctx.arc(cx, cy, 38, 0, Math.PI * 2);
+                ctx.fill();
+
+                // 空洞眼窝中央极小针尖反光
+                ctx.fillStyle = '#ffffff';
+                ctx.beginPath();
+                ctx.arc(cx, cy, 2.0, 0, Math.PI * 2);
+                ctx.fill();
+                // 另一只眼睛的反光稍暗
+                ctx.fillStyle = 'rgba(255,255,255,0.6)';
+                ctx.beginPath();
+                ctx.arc(cx + 2, cy - 1, 1.0, 0, Math.PI * 2);
+                ctx.fill();
+            };
+            drawHollowEye(82, 105);
+            drawHollowEye(174, 102);
+
+            // 更明显的腮红与紫黑色血管
+            ctx.fillStyle = 'rgba(120, 10, 10, 0.22)';
+            ctx.beginPath();
+            ctx.arc(62, 145, 20, 0, Math.PI * 2);
+            ctx.arc(194, 145, 20, 0, Math.PI * 2);
+            ctx.fill();
+
+            // 裂至耳根的诡笑，嘴角带有血痕
+            ctx.strokeStyle = '#0a0202';
+            ctx.lineWidth = 8;
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            ctx.moveTo(38, 152);
+            ctx.bezierCurveTo(85, 222, 171, 222, 218, 148);
+            ctx.stroke();
+
+            // 牙齿
+            ctx.strokeStyle = '#d8d6cf';
+            ctx.lineWidth = 2.5;
+            for (let tx = 62; tx <= 194; tx += 12) {
+                ctx.beginPath();
+                ctx.moveTo(tx, 180);
+                ctx.lineTo(tx, 200);
+                ctx.stroke();
+            }
+
+            // 嘴角血痕
+            ctx.fillStyle = 'rgba(120, 20, 20, 0.3)';
+            ctx.beginPath();
+            ctx.arc(45, 170, 12, 0, Math.PI * 2);
+            ctx.arc(211, 168, 12, 0, Math.PI * 2);
+            ctx.fill();
+
+            return new THREE.CanvasTexture(canvas);
+        },
+
+        createExitSignTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 256;
+            canvas.height = 96;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#2b0404';
+            ctx.fillRect(0, 0, 256, 96);
+            ctx.strokeStyle = '#ff2222';
+            ctx.lineWidth = 6;
+            ctx.strokeRect(4, 4, 248, 88);
+            ctx.fillStyle = '#ff3333';
+            ctx.font = 'bold 34px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('安全出口 EXIT', 128, 48);
+            return new THREE.CanvasTexture(canvas);
+        },
+
+        createChalkboardTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 512;
+            canvas.height = 256;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#0f1c16';
+            ctx.fillRect(0, 0, 512, 256);
+
+            ctx.fillStyle = 'rgba(225, 230, 225, 0.75)';
+            ctx.font = '26px "Noto Serif SC", serif';
+            ctx.fillText('值日生：小明', 32, 52);
+            ctx.fillText('不要回头看他', 45, 110);
+
+            ctx.fillStyle = 'rgba(200, 35, 35, 0.9)';
+            ctx.font = 'bold 34px "Noto Serif SC", serif';
+            ctx.fillText('他一直站在你身后！', 140, 185);
+            return new THREE.CanvasTexture(canvas);
+        }
+    };
+
+    // ============================================================================
+    // 第三部分：主游戏引擎（增强版）
+    // ============================================================================
+    class MidnightCorridorGame {
+        constructor() {
+            this.canvas = document.getElementById('game-canvas');
+            this.audio = new HorrorAudioEngine();
+
+            this.state = 'MENU';
+            this.elapsedTime = 0;
+            this.clock = new THREE.Clock();
+
+            this.player = {
+                pos: new THREE.Vector3(0, 1.65, 14),
+                yaw: 0,
+                pitch: 0,
+                radius: 0.36,
+                baseHeight: 1.65,
+                crouchHeight: 0.98,
+                currentHeight: 1.65,
+                stamina: 100,
+                battery: 100,
+                flashlightOn: true,
+                isCrouching: false,
+                isRunning: false,
+                isHoldingBreath: false,
+                quickTurnTimer: 0,
+                quickTurnStartYaw: 0,
+                quickTurnTargetYaw: 0,
+                walkBobTimer: 0,
+                stepAccumulator: 0,
+                onCreakyWood: false,
+                dangerLevel: 0,
+                bpm: 72,
+                // 新增：闪避与感知
+                dodgeCooldown: 0,
+                dodgeTimer: 0,
+                dodgeDir: new THREE.Vector3(),
+                senseCooldown: 0,
+                senseActive: false,
+                senseTimer: 0,
+                invulnerableTimer: 0
+            };
+
+            this.keys = {};
+            this.isPointerLocked = false;
+            this.isMouseDragging = false;
+            this.lastMouseX = 0;
+            this.lastMouseY = 0;
+
+            this.colliders = [];
+            this.creakZones = [];
+            this.flickerLights = [];
+            this.files = [];
+            this.collectedCount = 0;
+            this.exitDoor = null;
+
+            this.narratorTimeout = null;
+            this.lastNarratorEventTime = -10;
+
+            // 新增：感知脉冲可视化对象
+            this.senseWireframes = [];
+
+            this.initThree();
+            this.buildEnvironment();
+            this.buildPlayerShadowAvatar();
+            this.buildHorrorCharacters();
+            this.bindEvents();
+
+            window.addEventListener('load', () => this.animate());
+        }
+
+        initThree() {
+            this.scene = new THREE.Scene();
+            this.scene.background = new THREE.Color(0x010102);
+            // 更浓的雾，增加恐怖感
+            this.scene.fog = new THREE.FogExp2(0x020204, 0.085);
+
+            this.camera = new THREE.PerspectiveCamera(72, window.innerWidth / window.innerHeight, 0.22, 55);
+            this.camera.rotation.order = 'YXZ';
+
+            this.renderer = new THREE.WebGLRenderer({
+                canvas: this.canvas,
+                antialias: true,
+                powerPreference: 'high-performance'
+            });
+            this.renderer.setSize(window.innerWidth, window.innerHeight);
+            this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            this.renderer.shadowMap.enabled = true;
+            this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            this.renderer.toneMappingExposure = 1.25; // 略提高曝光让暗部稍微可见
+
+            // 环境光更暗
+            const hemiLight = new THREE.HemisphereLight(0x10161c, 0x030305, 0.15);
+            this.scene.add(hemiLight);
+
+            // 手电筒
+            this.flashlight = new THREE.SpotLight(0xfff4dc, 3.6, 26, Math.PI / 5.0, 0.45, 1.4);
+            this.flashlight.castShadow = true;
+            this.flashlight.shadow.mapSize.width = 1024;
+            this.flashlight.shadow.mapSize.height = 1024;
+            this.flashlight.shadow.camera.near = 0.3;
+            this.flashlight.shadow.camera.far = 24;
+            this.flashlight.shadow.bias = -0.0008;
+            this.scene.add(this.flashlight);
+            this.scene.add(this.flashlight.target);
+
+            // 尘埃粒子更多
+            const dustCount = 420;
+            const dustGeo = new THREE.BufferGeometry();
+            const dustPositions = new Float32Array(dustCount * 3);
+            for (let i = 0; i < dustCount * 3; i += 3) {
+                dustPositions[i] = (Math.random() - 0.5) * 34;
+                dustPositions[i + 1] = 0.2 + Math.random() * 3.6;
+                dustPositions[i + 2] = (Math.random() - 0.5) * 36;
+            }
+            dustGeo.setAttribute('position', new THREE.BufferAttribute(dustPositions, 3));
+            const dustMat = new THREE.PointsMaterial({
+                color: 0xc8c8d0,
+                size: 0.028,
+                transparent: true,
+                opacity: 0.32,
+                blending: THREE.AdditiveBlending
+            });
+            this.dustParticles = new THREE.Points(dustGeo, dustMat);
+            this.scene.add(this.dustParticles);
+        }
+
+        buildEnvironment() {
+            const tileTex = ProceduralTextures.createTileTexture();
+            const wallTex = ProceduralTextures.createWallTexture();
+            const woodTex = ProceduralTextures.createCreakyWoodTexture();
+
+            const floorMat = new THREE.MeshStandardMaterial({
+                map: tileTex,
+                roughness: 0.78,
+                metalness: 0.06,
+                color: 0x8a8a8a // 降低反照率
+            });
+            const floor = new THREE.Mesh(new THREE.PlaneGeometry(42, 42), floorMat);
+            floor.rotation.x = -Math.PI / 2;
+            floor.receiveShadow = true;
+            this.scene.add(floor);
+
+            const ceilMat = new THREE.MeshStandardMaterial({
+                color: 0x0e0f12,
+                roughness: 0.95
+            });
+            const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(42, 42), ceilMat);
+            ceiling.rotation.x = Math.PI / 2;
+            ceiling.position.y = 3.8;
+            this.scene.add(ceiling);
+
+            this.wallMat = new THREE.MeshStandardMaterial({
+                map: wallTex,
+                roughness: 0.9,
+                metalness: 0.03,
+                color: 0x9a9a9a
+            });
+
+            const addWall = (x, z, w, d, h = 3.8, mat = this.wallMat) => {
+                const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+                mesh.position.set(x, h / 2, z);
+                mesh.castShadow = true;
+                mesh.receiveShadow = true;
+                this.scene.add(mesh);
+                this.colliders.push({
+                    minX: x - w / 2,
+                    maxX: x + w / 2,
+                    minZ: z - d / 2,
+                    maxZ: z + d / 2
+                });
+                return mesh;
+            };
+
+            addWall(0, 17.5, 34, 0.6);
+            addWall(0, -16.5, 34, 0.6);
+            addWall(-16.5, 0.5, 0.6, 35);
+            addWall(16.5, 0.5, 0.6, 35);
+
+            addWall(-2.6, 12.8, 0.4, 8.8);
+            addWall(-2.6, -0.5, 0.4, 9.0);
+            addWall(-2.6, -12.0, 0.4, 9.0);
+
+            addWall(2.6, 11.2, 0.4, 12.0);
+            addWall(2.6, -0.5, 0.4, 5.0);
+            addWall(2.6, -11.5, 0.4, 10.0);
+
+            addWall(-9.3, 12.0, 13.4, 0.4);
+            addWall(-9.3, 2.0, 13.4, 0.4);
+
+            addWall(-9.3, -2.0, 13.4, 0.4);
+            addWall(-9.3, -12.0, 13.4, 0.4);
+
+            addWall(9.3, 9.0, 13.4, 0.4);
+            addWall(9.3, -1.0, 13.4, 0.4);
+
+            addWall(6.3, -3.0, 7.4, 0.4);
+            addWall(6.3, -10.0, 7.4, 0.4);
+            addWall(10.0, -6.5, 0.4, 7.0);
+            addWall(2.6, -4.5, 0.4, 3.0, 1.05);
+
+            const barMat = new THREE.MeshStandardMaterial({ color: 0x15171a, metalness: 0.9, roughness: 0.3 });
+            for (let bz = -5.8; bz <= -3.2; bz += 0.28) {
+                const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 2.75, 8), barMat);
+                bar.position.set(2.6, 2.4, bz);
+                bar.castShadow = true;
+                this.scene.add(bar);
+            }
+
+            const woodMat = new THREE.MeshStandardMaterial({
+                map: woodTex,
+                roughness: 0.92,
+                metalness: 0.02,
+                color: 0x7a7a7a
+            });
+            const addCreakWoodZone = (x, z, w, d) => {
+                const plankMesh = new THREE.Mesh(new THREE.BoxGeometry(w, 0.025, d), woodMat);
+                plankMesh.position.set(x, 0.012, z);
+                plankMesh.receiveShadow = true;
+                this.scene.add(plankMesh);
+                this.creakZones.push({
+                    minX: x - w / 2,
+                    maxX: x + w / 2,
+                    minZ: z - d / 2,
+                    maxZ: z + d / 2
+                });
+            };
+            addCreakWoodZone(0, 7.5, 4.6, 3.2);
+            addCreakWoodZone(-5.5, 6.5, 4.5, 3.6);
+            addCreakWoodZone(5.2, 3.5, 4.2, 3.4);
+            addCreakWoodZone(0, -8.5, 4.8, 3.6);
+
+            // 课桌椅
+            const deskMat = new THREE.MeshStandardMaterial({ color: 0x2e1c10, roughness: 0.85 });
+            for (let row = 0; row < 2; row++) {
+                for (let col = 0; col < 3; col++) {
+                    const dx = -12.5 + col * 3.1;
+                    const dz = 4.2 + row * 3.6;
+                    const desk = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.76, 0.65), deskMat);
+                    desk.position.set(dx, 0.38, dz);
+                    desk.castShadow = true;
+                    desk.receiveShadow = true;
+                    this.scene.add(desk);
+                    this.colliders.push({ minX: dx - 0.55, maxX: dx + 0.55, minZ: dz - 0.32, maxZ: dz + 0.32 });
+                }
+            }
+            const boardMesh = new THREE.Mesh(
+                new THREE.BoxGeometry(0.12, 1.35, 3.6),
+                new THREE.MeshStandardMaterial({ map: ProceduralTextures.createChalkboardTexture(), roughness: 0.88 })
+            );
+            boardMesh.position.set(-16.1, 1.85, 7.0);
+            this.scene.add(boardMesh);
+
+            // 电视
+            const tvCart = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.85, 0.7), new THREE.MeshStandardMaterial({ color: 0x181a1e, roughness: 0.75 }));
+            tvCart.position.set(13.8, 0.425, 4.0);
+            tvCart.castShadow = true;
+            this.scene.add(tvCart);
+
+            const tvBody = new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.68, 0.68), new THREE.MeshStandardMaterial({ color: 0x111113, roughness: 0.65 }));
+            tvBody.position.set(13.8, 1.18, 4.0);
+            tvBody.castShadow = true;
+            this.scene.add(tvBody);
+
+            this.tvCanvas = document.createElement('canvas');
+            this.tvCanvas.width = 64;
+            this.tvCanvas.height = 64;
+            this.tvCtx = this.tvCanvas.getContext('2d');
+            this.tvTexture = new THREE.CanvasTexture(this.tvCanvas);
+            const tvScreen = new THREE.Mesh(
+                new THREE.PlaneGeometry(0.56, 0.46),
+                new THREE.MeshBasicMaterial({ map: this.tvTexture })
+            );
+            tvScreen.position.set(13.41, 1.18, 4.0);
+            tvScreen.rotation.y = -Math.PI / 2;
+            this.scene.add(tvScreen);
+
+            this.tvLight = new THREE.PointLight(0x7799cc, 1.5, 10);
+            this.tvLight.position.set(13.0, 1.35, 4.0);
+            this.tvLight.castShadow = true;
+            this.scene.add(this.tvLight);
+
+            // 顶灯
+            const addCeilingLight = (x, z, color, intensity, flickerChance) => {
+                const fixture = new THREE.Mesh(
+                    new THREE.BoxGeometry(0.22, 0.08, 1.2),
+                    new THREE.MeshBasicMaterial({ color: color })
+                );
+                fixture.position.set(x, 3.74, z);
+                this.scene.add(fixture);
+
+                const light = new THREE.PointLight(color, intensity, 14, 1.7);
+                light.position.set(x, 3.45, z);
+                light.castShadow = true;
+                light.shadow.mapSize.width = 512;
+                light.shadow.mapSize.height = 512;
+                light.shadow.bias = -0.0015;
+                this.scene.add(light);
+
+                this.flickerLights.push({
+                    light,
+                    fixture,
+                    baseIntensity: intensity,
+                    flickerChance,
+                    timer: Math.random() * 10
+                });
+            };
+
+            addCeilingLight(0, 13.0, 0xc8d8ea, 1.35, 0.05);
+            addCeilingLight(0, 4.5, 0xc8d8ea, 1.25, 0.16);
+            addCeilingLight(0, -4.5, 0xff1a1a, 1.6, 0.04);
+            addCeilingLight(0, -13.5, 0xff1111, 1.95, 0.07);
+            addCeilingLight(-9.5, 7.0, 0xb8c5d6, 1.15, 0.12);
+            addCeilingLight(-9.5, -7.0, 0xc8d8ea, 1.2, 0.06);
+            addCeilingLight(6.2, -6.5, 0xffaa44, 1.0, 0.02);
+
+            // 出口门
+            const exitGroup = new THREE.Group();
+            const doorMat = new THREE.MeshStandardMaterial({ color: 0x1c1f24, metalness: 0.8, roughness: 0.3 });
+            const doorMesh = new THREE.Mesh(new THREE.BoxGeometry(2.6, 2.8, 0.25), doorMat);
+            doorMesh.position.set(0, 1.4, -16.1);
+            doorMesh.castShadow = true;
+            doorMesh.receiveShadow = true;
+            exitGroup.add(doorMesh);
+
+            const signMesh = new THREE.Mesh(
+                new THREE.PlaneGeometry(1.1, 0.42),
+                new THREE.MeshBasicMaterial({ map: ProceduralTextures.createExitSignTexture() })
+            );
+            signMesh.position.set(0, 3.05, -15.95);
+            exitGroup.add(signMesh);
+
+            this.exitLockIndicators = [];
+            for (let i = 0; i < 4; i++) {
+                const ind = new THREE.Mesh(
+                    new THREE.SphereGeometry(0.06, 8, 8),
+                    new THREE.MeshBasicMaterial({ color: 0xff1111 })
+                );
+                ind.position.set(-0.45 + i * 0.3, 1.55, -15.94);
+                exitGroup.add(ind);
+                this.exitLockIndicators.push(ind);
+            }
+            this.scene.add(exitGroup);
+            this.exitDoor = { pos: new THREE.Vector3(0, 1.4, -15.5) };
+
+            this.spawnForbiddenFiles();
+        }
+
+        spawnForbiddenFiles() {
+            const fileLocations = [
+                {
+                    id: 0,
+                    title: '档案 #01：放映室录像带记录',
+                    pos: new THREE.Vector3(13.2, 0.92, 4.0),
+                    lore: '【已解密】“1998年秋，旧放映室的CRT电视在断电后依然播放着枯井画面。凡是盯着屏幕超过三秒的人，都会在回头时看见长发女鬼……”',
+                    narratorReaction: '“哦？你拿到了放映室的记录……注意看电视屏幕，她已经注意到你了。”'
+                },
+                {
+                    id: 1,
+                    title: '档案 #02：104教室怪谈手记',
+                    pos: new THREE.Vector3(-13.8, 0.84, 7.2),
+                    lore: '【已解密】“转校生小明的脖子在事故中折断成了45度。他喜欢玩一二三木头人——只要你看着他，他就会保持微笑；一旦你移开视线……”',
+                    narratorReaction: '“104教室的那个孩子最喜欢跟人玩木头人了……千万别背对着他走开。”'
+                },
+                {
+                    id: 2,
+                    title: '档案 #03：夜间保安值班守则',
+                    pos: new THREE.Vector3(-11.5, 0.85, -7.0),
+                    lore: '【已解密】“王警卫的左腿早就坏死了，但他每晚仍提着红光手电巡逻。走廊里那些腐朽木地板一旦发出‘咔吱’声，他就会吹响警哨狂奔而来！”',
+                    narratorReaction: '“只差最后一份档案了。不过小心，我刚把走廊的灯光调暗了一点……王警卫最喜欢黑暗。”'
+                },
+                {
+                    id: 3,
+                    title: '档案 #04：广播室绝密实验报告',
+                    pos: new THREE.Vector3(0, 0.85, -11.5),
+                    lore: '【已解密】“所谓的灵异调查，其实是将活人困在回廊中的恐惧实验。四把电子锁已解除——快跑向北端红色安全出口大门！”',
+                    narratorReaction: '“精彩！四份档案全部集齐了！安全出口的锁已经打开……但你真以为他们会放你离开吗？快跑！！”'
+                }
+            ];
+
+            const folderMat = new THREE.MeshStandardMaterial({
+                color: 0xa01818,
+                emissive: 0x2a0404,
+                roughness: 0.55
+            });
+            const paperMat = new THREE.MeshStandardMaterial({
+                color: 0xe8e8e0,
+                emissive: 0x1a1a18
+            });
+
+            fileLocations.forEach(item => {
+                const group = new THREE.Group();
+                const folder = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.03, 0.42), folderMat);
+                const paper = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.035, 0.38), paperMat);
+                paper.rotation.y = 0.12;
+                group.add(folder);
+                group.add(paper);
+
+                const glow = new THREE.PointLight(0xffaa55, 0.55, 3.0);
+                glow.position.y = 0.35;
+                group.add(glow);
+
+                group.position.copy(item.pos);
+                this.scene.add(group);
+
+                this.files.push({
+                    ...item,
+                    mesh: group,
+                    collected: false
+                });
+            });
+        }
+
+        buildPlayerShadowAvatar() {
+            this.playerShadowRig = new THREE.Group();
+            const shadowCasterMat = new THREE.MeshStandardMaterial({
+                color: 0x121418,
+                roughness: 0.92
+            });
+
+            const head = new THREE.Mesh(new THREE.SphereGeometry(0.13, 12, 12), shadowCasterMat);
+            head.position.set(0, 0.04, 0.20);
+            head.castShadow = true;
+            this.playerShadowRig.add(head);
+
+            const torso = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.64, 0.22), shadowCasterMat);
+            torso.position.set(0, -0.38, 0.16);
+            torso.castShadow = true;
+            this.playerShadowRig.add(torso);
+
+            this.playerLeftArm = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.56, 0.11), shadowCasterMat);
+            this.playerLeftArm.position.set(-0.25, -0.36, 0.12);
+            this.playerLeftArm.castShadow = true;
+            this.playerShadowRig.add(this.playerLeftArm);
+
+            this.playerRightArm = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.52, 0.11), shadowCasterMat);
+            this.playerRightArm.position.set(0.24, -0.30, -0.05);
+            this.playerRightArm.rotation.x = Math.PI / 2.6;
+            this.playerRightArm.castShadow = true;
+            this.playerShadowRig.add(this.playerRightArm);
+
+            this.playerLeftLeg = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.78, 0.15), shadowCasterMat);
+            this.playerLeftLeg.position.set(-0.11, -1.06, 0.14);
+            this.playerLeftLeg.castShadow = true;
+            this.playerShadowRig.add(this.playerLeftLeg);
+
+            this.playerRightLeg = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.78, 0.15), shadowCasterMat);
+            this.playerRightLeg.position.set(0.11, -1.06, 0.14);
+            this.playerRightLeg.castShadow = true;
+            this.playerShadowRig.add(this.playerRightLeg);
+
+            this.scene.add(this.playerShadowRig);
+        }
+
+        buildHorrorCharacters() {
+            // --- 贞子（更精细的长发与皮肤）---
+            this.sadako = {
+                group: new THREE.Group(),
+                hairStrands: [],
+                active: true,
+                stareTimer: 0,
+                teleportCooldown: 3.0,
+                pos: new THREE.Vector3(12.2, 0, 4.0)
+            };
+            const whiteGownMat = new THREE.MeshStandardMaterial({ color: 0xc8c8c0, roughness: 0.95, emissive: 0x111111 });
+            const paleSkinMat = new THREE.MeshStandardMaterial({ color: 0xa8acb2, roughness: 0.8 });
+            const blackHairMat = new THREE.MeshStandardMaterial({ color: 0x030304, roughness: 0.7, side: THREE.DoubleSide });
+
+            const sadakoDress = new THREE.Mesh(new THREE.ConeGeometry(0.38, 1.5, 16), whiteGownMat);
+            sadakoDress.position.y = 0.75;
+            sadakoDress.castShadow = true;
+            this.sadako.group.add(sadakoDress);
+
+            const sadakoHead = new THREE.Mesh(new THREE.SphereGeometry(0.15, 14, 14), paleSkinMat);
+            sadakoHead.position.set(0, 1.52, 0.04);
+            sadakoHead.castShadow = true;
+            this.sadako.group.add(sadakoHead);
+
+            // 更细致的眼睛
+            const sadakoEye = new THREE.Mesh(
+                new THREE.SphereGeometry(0.026, 10, 10),
+                new THREE.MeshBasicMaterial({ color: 0xffcccc })
+            );
+            sadakoEye.position.set(0.045, 1.53, 0.17);
+            const sadakoPupil = new THREE.Mesh(
+                new THREE.SphereGeometry(0.012, 8, 8),
+                new THREE.MeshBasicMaterial({ color: 0x1a0000 })
+            );
+            sadakoPupil.position.set(0.045, 1.53, 0.19);
+            this.sadako.group.add(sadakoEye, sadakoPupil);
+
+            // 更多发丝，更自然
+            for (let i = 0; i < 34; i++) {
+                const angle = (i / 34) * Math.PI * 2;
+                const len = 0.7 + Math.random() * 0.3;
+                const strand = new THREE.Mesh(new THREE.BoxGeometry(0.038, len, 0.022), blackHairMat);
+                strand.position.set(Math.sin(angle) * 0.15, 1.56 - len / 2, Math.cos(angle) * 0.15 + 0.04);
+                strand.castShadow = true;
+                this.sadako.group.add(strand);
+                this.sadako.hairStrands.push(strand);
+            }
+
+            const sArmL = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.68, 0.06), paleSkinMat);
+            sArmL.position.set(-0.23, 1.15, 0.23);
+            sArmL.rotation.set(0.85, 0, 0.18);
+            const sArmR = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.68, 0.06), paleSkinMat);
+            sArmR.position.set(0.23, 1.12, 0.26);
+            sArmR.rotation.set(1.05, 0, -0.22);
+            this.sadako.group.add(sArmL, sArmR);
+
+            this.sadako.group.position.copy(this.sadako.pos);
+            this.scene.add(this.sadako.group);
+
+            // --- 诡异小明（优化）---
+            this.xiaoMing = {
+                group: new THREE.Group(),
+                headGroup: new THREE.Group(),
+                pos: new THREE.Vector3(-10.5, 0, 8.8),
+                isFrozen: false,
+                headTiltTarget: 0.72
+            };
+
+            const uniformMat = new THREE.MeshStandardMaterial({ color: 0x101a2a, roughness: 0.88 });
+            const scarfMat = new THREE.MeshStandardMaterial({ color: 0x6a0e0e, roughness: 0.8 });
+            const xmFaceTex = ProceduralTextures.createXiaoMingFaceTexture();
+
+            const xmTorso = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.68, 0.2), uniformMat);
+            xmTorso.position.y = 1.08;
+            xmTorso.castShadow = true;
+            this.xiaoMing.group.add(xmTorso);
+
+            const xmScarf = new THREE.Mesh(new THREE.ConeGeometry(0.11, 0.34, 4), scarfMat);
+            xmScarf.position.set(0, 1.26, 0.11);
+            xmScarf.rotation.x = Math.PI;
+            this.xiaoMing.group.add(xmScarf);
+
+            const xmLegL = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.045, 0.78, 8), uniformMat);
+            xmLegL.position.set(-0.1, 0.39, 0);
+            const xmLegR = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.045, 0.78, 8), uniformMat);
+            xmLegR.position.set(0.1, 0.39, 0);
+            const xmArmL = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.035, 0.74, 8), uniformMat);
+            xmArmL.position.set(-0.23, 1.02, 0.04);
+            xmArmL.rotation.z = 0.08;
+            const xmArmR = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.035, 0.74, 8), uniformMat);
+            xmArmR.position.set(0.23, 1.02, 0.04);
+            xmArmR.rotation.z = -0.08;
+            this.xiaoMing.group.add(xmLegL, xmLegR, xmArmL, xmArmR);
+
+            const longNeck = new THREE.Mesh(new THREE.CylinderGeometry(0.048, 0.06, 0.34, 8), paleSkinMat);
+            longNeck.position.set(0, 1.54, 0.02);
+            longNeck.rotation.z = -0.25;
+            this.xiaoMing.group.add(longNeck);
+
+            const headMaterials = [
+                paleSkinMat,
+                paleSkinMat,
+                new THREE.MeshStandardMaterial({ color: 0x070707 }),
+                paleSkinMat,
+                new THREE.MeshStandardMaterial({ map: xmFaceTex, roughness: 0.68 }),
+                new THREE.MeshStandardMaterial({ color: 0x070707 })
+            ];
+            const xmHead = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.33, 0.27), headMaterials);
+            xmHead.castShadow = true;
+            this.xiaoMing.headGroup.add(xmHead);
+            this.xiaoMing.headGroup.position.set(0.06, 1.78, 0.04);
+            this.xiaoMing.headGroup.rotation.z = 0.72;
+            this.xiaoMing.group.add(this.xiaoMing.headGroup);
+
+            this.xiaoMing.group.position.copy(this.xiaoMing.pos);
+            this.scene.add(this.xiaoMing.group);
+
+            // --- 王警卫（细节增强）---
+            this.guardWang = {
+                group: new THREE.Group(),
+                pos: new THREE.Vector3(0, 0, -2.0),
+                waypoints: [
+                    new THREE.Vector3(0, 0, 10.5),
+                    new THREE.Vector3(0, 0, -10.5),
+                    new THREE.Vector3(-8.5, 0, -7.0),
+                    new THREE.Vector3(0, 0, -6.5)
+                ],
+                currentWaypoint: 0,
+                limpTimer: 0,
+                keyJingleTimer: 0,
+                alertTimer: 0,
+                lastKnownPlayerPos: new THREE.Vector3()
+            };
+
+            const guardUniformMat = new THREE.MeshStandardMaterial({ color: 0x0e1626, roughness: 0.85 });
+            const corpseFaceMat = new THREE.MeshStandardMaterial({ color: 0x5a6664, roughness: 0.9 });
+
+            const gwTorso = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.78, 0.28), guardUniformMat);
+            gwTorso.position.y = 1.15;
+            gwTorso.castShadow = true;
+            this.guardWang.group.add(gwTorso);
+
+            const badge = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.03), new THREE.MeshStandardMaterial({ color: 0xc0a030, metalness: 0.95, roughness: 0.2 }));
+            badge.position.set(-0.12, 1.35, 0.15);
+            this.guardWang.group.add(badge);
+
+            const gwHead = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.27, 0.24), corpseFaceMat);
+            gwHead.position.set(0, 1.68, 0.03);
+            gwHead.castShadow = true;
+            this.guardWang.group.add(gwHead);
+
+            const capCrown = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.14, 0.1, 12), guardUniformMat);
+            capCrown.position.set(0.02, 1.84, 0.03);
+            capCrown.rotation.z = -0.18;
+            const capVisor = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.02, 0.16), new THREE.MeshStandardMaterial({ color: 0x030303 }));
+            capVisor.position.set(0.02, 1.79, 0.14);
+            capVisor.rotation.z = -0.18;
+            this.guardWang.group.add(capCrown, capVisor);
+
+            this.gwLegL = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.78, 0.16), guardUniformMat);
+            this.gwLegL.position.set(-0.13, 0.39, 0);
+            this.gwLegR = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.78, 0.16), guardUniformMat);
+            this.gwLegR.position.set(0.13, 0.39, 0);
+            this.guardWang.group.add(this.gwLegL, this.gwLegR);
+
+            const gwTorch = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.26, 8), new THREE.MeshStandardMaterial({ color: 0x0e0e0e, metalness: 0.85 }));
+            gwTorch.rotation.x = Math.PI / 2;
+            gwTorch.position.set(0.28, 1.12, 0.28);
+            this.guardWang.group.add(gwTorch);
+
+            this.guardRedLight = new THREE.SpotLight(0xff0a0a, 4.2, 16, Math.PI / 6.0, 0.35, 1.2);
+            this.guardRedLight.castShadow = true;
+            this.guardRedLight.shadow.mapSize.width = 512;
+            this.guardRedLight.shadow.mapSize.height = 512;
+            this.scene.add(this.guardRedLight);
+            this.scene.add(this.guardRedLight.target);
+
+            this.guardWang.group.position.copy(this.guardWang.pos);
+            this.scene.add(this.guardWang.group);
+
+            // --- 讲解师（优化）---
+            this.narratorChar = {
+                group: new THREE.Group(),
+                headGroup: new THREE.Group(),
+                pos: new THREE.Vector3(4.2, 0, -4.5)
+            };
+            const suitMat = new THREE.MeshStandardMaterial({ color: 0x0e0e12, roughness: 0.8 });
+            const narTorso = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.82, 0.24), suitMat);
+            narTorso.position.y = 1.18;
+            narTorso.castShadow = true;
+            this.narratorChar.group.add(narTorso);
+
+            const narLegs = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.78, 0.2), suitMat);
+            narLegs.position.y = 0.39;
+            this.narratorChar.group.add(narLegs);
+
+            const narHead = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.26, 0.22), paleSkinMat);
+            const glassMat = new THREE.MeshBasicMaterial({ color: 0xc8d8ea });
+            const glassL = new THREE.Mesh(new THREE.BoxGeometry(0.065, 0.045, 0.02), glassMat);
+            glassL.position.set(-0.055, 0.02, 0.115);
+            const glassR = new THREE.Mesh(new THREE.BoxGeometry(0.065, 0.045, 0.02), glassMat);
+            glassR.position.set(0.055, 0.02, 0.115);
+            this.narratorChar.headGroup.add(narHead, glassL, glassR);
+            this.narratorChar.headGroup.position.set(0, 1.74, 0);
+            this.narratorChar.group.add(this.narratorChar.headGroup);
+
+            const megaphone = new THREE.Mesh(
+                new THREE.ConeGeometry(0.09, 0.26, 12),
+                new THREE.MeshStandardMaterial({ color: 0x4a4a52, metalness: 0.9, roughness: 0.25 })
+            );
+            megaphone.rotation.x = Math.PI / 2;
+            megaphone.position.set(0.22, 1.52, 0.22);
+            this.narratorChar.group.add(megaphone);
+
+            this.narratorChar.group.position.copy(this.narratorChar.pos);
+            this.scene.add(this.narratorChar.group);
+        }
+
+        narratorSpeak(text, force = false) {
+            const now = this.elapsedTime;
+            if (!force && now - this.lastNarratorEventTime < 6.0) return;
+            this.lastNarratorEventTime = now;
+
+            const box = document.getElementById('narrator-box');
+            const textEl = document.getElementById('narrator-text');
+            textEl.textContent = text;
+            box.classList.remove('opacity-0');
+            box.classList.add('opacity-100');
+
+            this.audio.playNarratorRadioVoice(Math.min(2.4, Math.max(1.1, text.length * 0.06)));
+
+            clearTimeout(this.narratorTimeout);
+            this.narratorTimeout = setTimeout(() => {
+                box.classList.remove('opacity-100');
+                box.classList.add('opacity-0');
+            }, 5200);
+        }
+
+        bindEvents() {
+            window.addEventListener('resize', () => {
+                this.camera.aspect = window.innerWidth / window.innerHeight;
+                this.camera.updateProjectionMatrix();
+                this.renderer.setSize(window.innerWidth, window.innerHeight);
+            });
+
+            document.getElementById('btn-start-game').addEventListener('click', () => this.startGame());
+            document.getElementById('btn-restart-death').addEventListener('click', () => this.resetAndStart());
+            document.getElementById('btn-restart-win').addEventListener('click', () => this.resetAndStart());
+            document.getElementById('btn-close-dossier').addEventListener('click', () => this.toggleDossier(false));
+
+            document.addEventListener('pointerlockchange', () => {
+                this.isPointerLocked = (document.pointerLockElement === this.canvas);
+            });
+
+            document.addEventListener('mousemove', (e) => {
+                if (this.state !== 'PLAYING') return;
+                const sensitivity = 0.0022;
+                if (this.isPointerLocked) {
+                    this.player.yaw -= e.movementX * sensitivity;
+                    this.player.pitch -= e.movementY * sensitivity;
+                    this.player.pitch = Math.max(-Math.PI / 2.2, Math.min(Math.PI / 2.2, this.player.pitch));
+                } else if (this.isMouseDragging) {
+                    const dx = e.clientX - this.lastMouseX;
+                    const dy = e.clientY - this.lastMouseY;
+                    this.player.yaw -= dx * sensitivity * 1.4;
+                    this.player.pitch -= dy * sensitivity * 1.4;
+                    this.player.pitch = Math.max(-Math.PI / 2.2, Math.min(Math.PI / 2.2, this.player.pitch));
+                    this.lastMouseX = e.clientX;
+                    this.lastMouseY = e.clientY;
+                }
+            });
+
+            this.canvas.addEventListener('mousedown', (e) => {
+                if (this.state !== 'PLAYING') return;
+                if (e.button === 2) {
+                    this.triggerQuickTurn();
+                    return;
+                }
+                if (!this.isPointerLocked) {
+                    try {
+                        this.canvas.requestPointerLock();
+                    } catch (_) {}
+                    this.isMouseDragging = true;
+                    this.lastMouseX = e.clientX;
+                    this.lastMouseY = e.clientY;
+                }
+            });
+
+            window.addEventListener('mouseup', () => {
+                this.isMouseDragging = false;
+            });
+
+            window.addEventListener('contextmenu', (e) => e.preventDefault());
+
+            this.canvas.addEventListener('touchstart', (e) => {
+                if (this.state !== 'PLAYING' || e.touches.length === 0) return;
+                this.lastMouseX = e.touches[0].clientX;
+                this.lastMouseY = e.touches[0].clientY;
+            }, { passive: true });
+
+            this.canvas.addEventListener('touchmove', (e) => {
+                if (this.state !== 'PLAYING' || e.touches.length === 0) return;
+                const dx = e.touches[0].clientX - this.lastMouseX;
+                const dy = e.touches[0].clientY - this.lastMouseY;
+                this.player.yaw -= dx * 0.004;
+                this.player.pitch -= dy * 0.004;
+                this.player.pitch = Math.max(-Math.PI / 2.2, Math.min(Math.PI / 2.2, this.player.pitch));
+                this.lastMouseX = e.touches[0].clientX;
+                this.lastMouseY = e.touches[0].clientY;
+            }, { passive: true });
+
+            window.addEventListener('keydown', (e) => {
+                const code = e.code;
+                if (code === 'Tab') {
+                    e.preventDefault();
+                    if (this.state === 'PLAYING') this.toggleDossier(true);
+                    else if (this.state === 'DOSSIER') this.toggleDossier(false);
+                    return;
+                }
+                if (code === 'Escape' && this.state === 'DOSSIER') {
+                    this.toggleDossier(false);
+                    return;
+                }
+
+                this.keys[code] = true;
+
+                if (this.state !== 'PLAYING') return;
+
+                if (code === 'KeyF') {
+                    this.toggleFlashlight();
+                }
+                if (code === 'KeyC' || code === 'ControlLeft' || code === 'ControlRight') {
+                    this.player.isCrouching = !this.player.isCrouching;
+                }
+                if (code === 'KeyR') {
+                    this.triggerQuickTurn();
+                }
+                if (code === 'KeyE') {
+                    this.tryInteract();
+                }
+                // 新增：危险感知
+                if (code === 'KeyV') {
+                    this.triggerDangerSense();
+                }
+                // 新增：紧急闪避
+                if (code === 'KeyX') {
+                    this.triggerDodge();
+                }
+            });
+
+            window.addEventListener('keyup', (e) => {
+                this.keys[e.code] = false;
+            });
+
+            document.getElementById('btn-mobile-flash').addEventListener('click', () => this.toggleFlashlight());
+            document.getElementById('btn-mobile-crouch').addEventListener('click', () => {
+                this.player.isCrouching = !this.player.isCrouching;
+            });
+            document.getElementById('btn-mobile-turn').addEventListener('click', () => this.triggerQuickTurn());
+            document.getElementById('btn-mobile-interact').addEventListener('click', () => this.tryInteract());
+            document.getElementById('btn-mobile-sense').addEventListener('click', () => this.triggerDangerSense());
+            document.getElementById('btn-mobile-dodge').addEventListener('click', () => this.triggerDodge());
+        }
+
+        /**
+         * 新增：危险感知脉冲
+         */
+        triggerDangerSense() {
+            if (this.state !== 'PLAYING') return;
+            if (this.player.senseCooldown > 0) {
+                this.narratorSpeak('“危险感知还在冷却中……冷静点。”', true);
+                return;
+            }
+            this.player.senseCooldown = 8.0;
+            this.player.senseActive = true;
+            this.player.senseTimer = 2.0;
+            this.audio.playDangerSensePulse();
+
+            // 清除旧的线框
+            this.clearSenseWireframes();
+
+            // 为附近怪物创建红色线框轮廓
+            const monsters = [
+                { group: this.sadako.group, dist: this.player.pos.distanceTo(this.sadako.pos) },
+                { group: this.xiaoMing.group, dist: this.player.pos.distanceTo(this.xiaoMing.pos) },
+                { group: this.guardWang.group, dist: this.player.pos.distanceTo(this.guardWang.pos) }
+            ];
+
+            monsters.forEach(m => {
+                if (m.dist < 22) {
+                    m.group.traverse(child => {
+                        if (child.isMesh && child.material) {
+                            // 为每个mesh创建一个线框辅助
+                            const wireframe = new THREE.LineSegments(
+                                new THREE.EdgesGeometry(child.geometry),
+                                new THREE.LineBasicMaterial({ color: 0xff2222, linewidth: 1 })
+                            );
+                            wireframe.position.copy(child.position);
+                            wireframe.rotation.copy(child.rotation);
+                            wireframe.scale.copy(child.scale);
+                            wireframe.applyMatrix4(child.matrixWorld);
+                            // 用世界坐标存储
+                            this.senseWireframes.push({
+                                mesh: wireframe,
+                                target: child
+                            });
+                            this.scene.add(wireframe);
+                        }
+                    });
+                }
+            });
+
+            this.narratorSpeak('“感知脉冲释放……附近有东西在盯着你。”', true);
+        }
+
+        clearSenseWireframes() {
+            this.senseWireframes.forEach(w => {
+                this.scene.remove(w.mesh);
+            });
+            this.senseWireframes = [];
+            this.player.senseActive = false;
+        }
+
+        /**
+         * 新增：紧急闪避
+         */
+        triggerDodge() {
+            if (this.state !== 'PLAYING') return;
+            if (this.player.dodgeCooldown > 0) {
+                this.narratorSpeak('“闪避还没恢复……别慌！”', true);
+                return;
+            }
+            // 计算当前移动方向
+            let forward = 0;
+            let strafe = 0;
+            if (this.keys['KeyW'] || this.keys['ArrowUp']) forward += 1;
+            if (this.keys['KeyS'] || this.keys['ArrowDown']) forward -= 1;
+            if (this.keys['KeyA'] || this.keys['ArrowLeft']) strafe -= 1;
+            if (this.keys['KeyD'] || this.keys['ArrowRight']) strafe += 1;
+
+            let dodgeDir;
+            if (forward === 0 && strafe === 0) {
+                // 无输入则向后方闪避
+                const sinY = Math.sin(this.player.yaw);
+                const cosY = Math.cos(this.player.yaw);
+                dodgeDir = new THREE.Vector3(sinY, 0, cosY); // 后方
+            } else {
+                const len = Math.hypot(forward, strafe);
+                forward /= len;
+                strafe /= len;
+                const sinY = Math.sin(this.player.yaw);
+                const cosY = Math.cos(this.player.yaw);
+                dodgeDir = new THREE.Vector3(-sinY * forward + cosY * strafe, 0, -cosY * forward - sinY * strafe);
+            }
+
+            this.player.dodgeDir.copy(dodgeDir.normalize());
+            this.player.dodgeTimer = 0.18;
+            this.player.dodgeCooldown = 6.0;
+            this.player.invulnerableTimer = 0.2;
+            this.audio.playDodgeWhoosh();
+            this.narratorSpeak('“紧急闪避！干得好！”', true);
+        }
+
+        startGame() {
+            this.audio.init();
+            document.getElementById('start-screen').classList.add('hidden');
+            document.getElementById('hud').classList.remove('hidden');
+            this.state = 'PLAYING';
+            this.clock.getDelta();
+
+            try {
+                this.canvas.requestPointerLock();
+            } catch (_) {}
+
+            setTimeout(() => {
+                this.narratorSpeak('“午夜十二点已过……去搜集四份《禁忌档案》吧。记住，踩响腐朽木地板会招来王警卫，按V可以感知危险。”', true);
+            }, 900);
+        }
+
+        resetAndStart() {
+            this.player.pos.set(0, 1.65, 14);
+            this.player.yaw = 0;
+            this.player.pitch = 0;
+            this.player.stamina = 100;
+            this.player.battery = 100;
+            this.player.flashlightOn = true;
+            this.player.isCrouching = false;
+            this.player.dangerLevel = 0;
+            this.player.dodgeCooldown = 0;
+            this.player.dodgeTimer = 0;
+            this.player.senseCooldown = 0;
+            this.player.invulnerableTimer = 0;
+            this.elapsedTime = 0;
+            this.clearSenseWireframes();
+
+            this.collectedCount = 0;
+            document.getElementById('hud-files-count').textContent = '0 / 4';
+            this.files.forEach((f, idx) => {
+                f.collected = false;
+                f.mesh.visible = true;
+                this.exitLockIndicators[idx].material.color.setHex(0xff1111);
+            });
+
+            this.sadako.pos.set(12.2, 0, 4.0);
+            this.sadako.group.position.copy(this.sadako.pos);
+            this.sadako.stareTimer = 0;
+
+            this.xiaoMing.pos.set(-10.5, 0, 8.8);
+            this.xiaoMing.group.position.copy(this.xiaoMing.pos);
+
+            this.guardWang.pos.set(0, 0, -2.0);
+            this.guardWang.group.position.copy(this.guardWang.pos);
+            this.guardWang.alertTimer = 0;
+            this.guardWang.currentWaypoint = 0;
+
+            document.getElementById('gameover-screen').classList.add('hidden');
+            document.getElementById('victory-screen').classList.add('hidden');
+            document.getElementById('scare-overlay').classList.remove('scare-active');
+            document.getElementById('hud').classList.remove('hidden');
+
+            this.state = 'PLAYING';
+            this.clock.getDelta();
+            try {
+                this.canvas.requestPointerLock();
+            } catch (_) {}
+            this.narratorSpeak('“你又回来了？这次……看看你能撑到第几份档案。”', true);
+        }
+
+        toggleDossier(open) {
+            const modal = document.getElementById('dossier-modal');
+            if (open) {
+                this.state = 'DOSSIER';
+                modal.classList.remove('hidden');
+                if (document.pointerLockElement) {
+                    document.exitPointerLock();
+                }
+            } else {
+                this.state = 'PLAYING';
+                modal.classList.add('hidden');
+                this.clock.getDelta();
+                try {
+                    this.canvas.requestPointerLock();
+                } catch (_) {}
+            }
+        }
+
+        toggleFlashlight() {
+            if (this.player.battery <= 1) return;
+            this.player.flashlightOn = !this.player.flashlightOn;
+            this.audio.playFlashlightClick();
+            const stateEl = document.getElementById('hud-flashlight-state');
+            stateEl.textContent = this.player.flashlightOn ? '[开启]' : '[关闭]';
+            stateEl.className = this.player.flashlightOn ? 'text-amber-400' : 'text-stone-500';
+        }
+
+        triggerQuickTurn() {
+            if (this.player.quickTurnTimer > 0) return;
+            this.player.quickTurnTimer = 0.18;
+            this.player.quickTurnStartYaw = this.player.yaw;
+            this.player.quickTurnTargetYaw = this.player.yaw + Math.PI;
+        }
+
+        tryInteract() {
+            for (const file of this.files) {
+                if (!file.collected && this.player.pos.distanceTo(file.pos) < 2.2) {
+                    file.collected = true;
+                    file.mesh.visible = false;
+                    this.collectedCount++;
+                    this.audio.playPaperCollect();
+
+                    document.getElementById('hud-files-count').textContent = `${this.collectedCount} / 4`;
+                    document.getElementById(`lore-${file.id}`).textContent = file.lore;
+                    document.getElementById(`lore-${file.id}`).classList.replace('text-stone-400', 'text-stone-200');
+                    this.exitLockIndicators[this.collectedCount - 1].material.color.setHex(0x10b981);
+
+                    this.narratorSpeak(file.narratorReaction, true);
+
+                    if (this.collectedCount === 4) {
+                        document.getElementById('hud-objective').innerHTML =
+                            '<span class="text-emerald-400 font-bold">四把锁已解除！立刻前往北端红色安全出口大门并按 [E] 逃离！</span>';
+                        this.guardWang.alertTimer = 8.0;
+                        this.guardWang.lastKnownPlayerPos.copy(this.player.pos);
+                    }
+                    return;
+                }
+            }
+
+            if (this.player.pos.distanceTo(this.exitDoor.pos) < 2.6) {
+                if (this.collectedCount >= 4) {
+                    this.triggerVictory();
+                } else {
+                    this.narratorSpeak(`“大门锁得很死呢……你还需要集齐剩下的 ${4 - this.collectedCount} 份《禁忌档案》。”`, true);
+                }
+            }
+        }
+
+        resolveCollisions(newPos) {
+            const r = this.player.radius;
+            for (const box of this.colliders) {
+                const closestX = Math.max(box.minX, Math.min(newPos.x, box.maxX));
+                const closestZ = Math.max(box.minZ, Math.min(newPos.z, box.maxZ));
+                const dx = newPos.x - closestX;
+                const dz = newPos.z - closestZ;
+                const distSq = dx * dx + dz * dz;
+
+                if (distSq < r * r) {
+                    const dist = Math.sqrt(distSq) || 0.0001;
+                    const overlap = r - dist;
+                    newPos.x += (dx / dist) * overlap;
+                    newPos.z += (dz / dist) * overlap;
+                }
+            }
+        }
+
+        updatePlayer(dt) {
+            // 快速回头
+            if (this.player.quickTurnTimer > 0) {
+                this.player.quickTurnTimer = Math.max(0, this.player.quickTurnTimer - dt);
+                const progress = 1 - (this.player.quickTurnTimer / 0.18);
+                const smooth = progress * progress * (3 - 2 * progress);
+                this.player.yaw = this.player.quickTurnStartYaw + (this.player.quickTurnTargetYaw - this.player.quickTurnStartYaw) * smooth;
+            }
+
+            // 屏息
+            this.player.isHoldingBreath = Boolean(this.keys['KeyQ'] && this.player.stamina > 5);
+            const breathInd = document.getElementById('breath-indicator');
+            if (this.player.isHoldingBreath) {
+                breathInd.classList.remove('hidden');
+                this.player.stamina = Math.max(0, this.player.stamina - 16 * dt);
+            } else {
+                breathInd.classList.add('hidden');
+            }
+
+            // 闪避移动
+            if (this.player.dodgeTimer > 0) {
+                this.player.dodgeTimer = Math.max(0, this.player.dodgeTimer - dt);
+                const dodgeSpeed = 14.0;
+                const nextPos = this.player.pos.clone().addScaledVector(this.player.dodgeDir, dodgeSpeed * dt);
+                this.resolveCollisions(nextPos);
+                this.player.pos.copy(nextPos);
+            }
+            if (this.player.dodgeCooldown > 0) {
+                this.player.dodgeCooldown = Math.max(0, this.player.dodgeCooldown - dt);
+            }
+            if (this.player.invulnerableTimer > 0) {
+                this.player.invulnerableTimer = Math.max(0, this.player.invulnerableTimer - dt);
+            }
+
+            // 感知冷却
+            if (this.player.senseCooldown > 0) {
+                this.player.senseCooldown = Math.max(0, this.player.senseCooldown - dt);
+            }
+            if (this.player.senseActive) {
+                this.player.senseTimer -= dt;
+                if (this.player.senseTimer <= 0) {
+                    this.clearSenseWireframes();
+                } else {
+                    // 更新线框位置
+                    this.senseWireframes.forEach(w => {
+                        if (w.target) {
+                            w.mesh.position.copy(w.target.position);
+                            w.mesh.rotation.copy(w.target.rotation);
+                            w.mesh.scale.copy(w.target.scale);
+                            w.mesh.applyMatrix4(w.target.matrixWorld);
+                        }
+                    });
+                }
+            }
+
+            // 移动输入
+            let forward = 0;
+            let strafe = 0;
+            if (this.keys['KeyW'] || this.keys['ArrowUp']) forward += 1;
+            if (this.keys['KeyS'] || this.keys['ArrowDown']) forward -= 1;
+            if (this.keys['KeyA'] || this.keys['ArrowLeft']) strafe -= 1;
+            if (this.keys['KeyD'] || this.keys['ArrowRight']) strafe += 1;
+
+            const isMoving = (forward !== 0 || strafe !== 0) && this.player.dodgeTimer <= 0;
+            this.player.isRunning = Boolean(isMoving && (this.keys['ShiftLeft'] || this.keys['ShiftRight']) && !this.player.isCrouching && this.player.stamina > 8);
+
+            if (this.player.isRunning) {
+                this.player.stamina = Math.max(0, this.player.stamina - 22 * dt);
+            } else if (!this.player.isHoldingBreath) {
+                this.player.stamina = Math.min(100, this.player.stamina + 14 * dt);
+            }
+
+            let speed = 2.75;
+            if (this.player.isCrouching) speed = 1.45;
+            else if (this.player.isRunning) speed = 4.65;
+
+            if (isMoving) {
+                const len = Math.hypot(forward, strafe);
+                forward /= len;
+                strafe /= len;
+
+                const sinY = Math.sin(this.player.yaw);
+                const cosY = Math.cos(this.player.yaw);
+
+                const moveX = (-sinY * forward + cosY * strafe) * speed * dt;
+                const moveZ = (-cosY * forward - sinY * strafe) * speed * dt;
+
+                const nextPos = this.player.pos.clone();
+                nextPos.x += moveX;
+                nextPos.z += moveZ;
+                this.resolveCollisions(nextPos);
+                this.player.pos.x = nextPos.x;
+                this.player.pos.z = nextPos.z;
+            }
+
+            this.player.onCreakyWood = this.creakZones.some(z =>
+                this.player.pos.x >= z.minX && this.player.pos.x <= z.maxX &&
+                this.player.pos.z >= z.minZ && this.player.pos.z <= z.maxZ
+            );
+
+            const noiseEl = document.getElementById('hud-noise-status');
+            if (this.player.onCreakyWood) {
+                if (this.player.isCrouching) {
+                    noiseEl.textContent = '潜行中 (腐朽木板 · 轻声)';
+                    noiseEl.className = 'mono-font text-cyan-400';
+                } else {
+                    noiseEl.textContent = '警告！腐朽木板 (咔吱作响)';
+                    noiseEl.className = 'mono-font text-red-400 font-bold';
+                }
+            } else {
+                noiseEl.textContent = this.player.isRunning ? '急促脚步 (地砖回响)' : '正常 (冷硬地砖)';
+                noiseEl.className = this.player.isRunning ? 'mono-font text-amber-400' : 'mono-font text-emerald-400';
+            }
+
+            const targetEyeY = this.player.isCrouching ? this.player.crouchHeight : this.player.baseHeight;
+            this.player.currentHeight += (targetEyeY - this.player.currentHeight) * Math.min(1, dt * 10);
+
+            let bobOffsetY = 0;
+            if (isMoving) {
+                const bobFreq = this.player.isRunning ? 13.5 : (this.player.isCrouching ? 6.0 : 9.0);
+                this.player.walkBobTimer += dt * bobFreq;
+                bobOffsetY = Math.sin(this.player.walkBobTimer) * (this.player.isRunning ? 0.055 : 0.032);
+
+                this.player.stepAccumulator += speed * dt;
+                const stepStride = this.player.isRunning ? 1.85 : (this.player.isCrouching ? 1.15 : 1.48);
+                if (this.player.stepAccumulator >= stepStride) {
+                    this.player.stepAccumulator = 0;
+                    this.audio.playFootstep(this.player.onCreakyWood, this.player.isRunning, this.player.isCrouching);
+
+                    if ((this.player.onCreakyWood && !this.player.isCrouching) || this.player.isRunning) {
+                        const distToGuard = this.player.pos.distanceTo(this.guardWang.pos);
+                        if (distToGuard < 16.5) {
+                            this.guardWang.lastKnownPlayerPos.copy(this.player.pos);
+                            if (this.guardWang.alertTimer <= 0) {
+                                this.narratorSpeak('“听见了吗？木地板发出了‘咔吱’声……王警卫朝你那边走过来了。”');
+                            }
+                            this.guardWang.alertTimer = Math.max(this.guardWang.alertTimer, 5.5);
+                        }
+                    }
+                }
+            } else {
+                this.player.walkBobTimer += dt * 1.8;
+                bobOffsetY = Math.sin(this.player.walkBobTimer) * 0.008;
+            }
+
+            const targetFov = this.player.isHoldingBreath ? 64 : 72;
+            this.camera.fov += (targetFov - this.camera.fov) * Math.min(1, dt * 8);
+            this.camera.updateProjectionMatrix();
+
+            this.camera.position.set(this.player.pos.x, this.player.currentHeight + bobOffsetY, this.player.pos.z);
+            this.camera.rotation.y = this.player.yaw;
+            this.camera.rotation.x = this.player.pitch;
+
+            // 玩家影子
+            this.playerShadowRig.position.set(this.player.pos.x, this.player.currentHeight + bobOffsetY, this.player.pos.z);
+            this.playerShadowRig.rotation.y = this.player.yaw;
+            const crouchScaleY = this.player.currentHeight / this.player.baseHeight;
+            this.playerShadowRig.scale.set(1, crouchScaleY, 1);
+
+            const limbSwing = isMoving ? Math.sin(this.player.walkBobTimer) * 0.55 : 0;
+            this.playerLeftLeg.rotation.x = limbSwing;
+            this.playerRightLeg.rotation.x = -limbSwing;
+            this.playerLeftArm.rotation.x = -limbSwing * 0.85;
+
+            // 手电筒
+            if (this.player.flashlightOn && this.player.battery > 0) {
+                this.player.battery = Math.max(0, this.player.battery - 0.55 * dt);
+                const dir = new THREE.Vector3(0, 0, -1).applyEuler(new THREE.Euler(this.player.pitch, this.player.yaw, 0, 'YXZ'));
+                const rightVec = new THREE.Vector3(1, 0, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.player.yaw);
+
+                this.flashlight.position.copy(this.camera.position).addScaledVector(rightVec, 0.16).add(new THREE.Vector3(0, -0.14, 0));
+                this.flashlight.target.position.copy(this.flashlight.position).addScaledVector(dir, 6.0);
+
+                let flickerFactor = 1.0;
+                if (this.player.battery < 18 || this.player.dangerLevel > 0.72) {
+                    if (Math.random() < 0.25) flickerFactor = 0.15 + Math.random() * 0.4;
+                }
+                this.flashlight.intensity = 3.6 * flickerFactor;
+            } else {
+                this.flashlight.intensity = 0;
+                if (this.player.battery <= 0 && this.player.flashlightOn) {
+                    this.player.flashlightOn = false;
+                }
+            }
+
+            // 更新HUD危险感知条
+            const dangerBar = document.getElementById('hud-danger-bar');
+            const dangerText = document.getElementById('hud-danger-text');
+            const dangerPct = Math.min(100, this.player.dangerLevel * 100);
+            dangerBar.style.width = `${dangerPct}%`;
+            if (dangerPct < 20) {
+                dangerBar.className = 'h-full bg-emerald-500 transition-all duration-300';
+                dangerText.textContent = '安全';
+                dangerText.className = 'mono-font text-emerald-400';
+            } else if (dangerPct < 50) {
+                dangerBar.className = 'h-full bg-amber-500 transition-all duration-300';
+                dangerText.textContent = '警戒';
+                dangerText.className = 'mono-font text-amber-400';
+            } else {
+                dangerBar.className = 'h-full bg-red-600 transition-all duration-300';
+                dangerText.textContent = '危险！';
+                dangerText.className = 'mono-font text-red-400 font-bold';
+            }
+            // 危险脉冲边框
+            const vignette = document.getElementById('vignette');
+            if (dangerPct > 60) {
+                vignette.classList.add('danger-pulse');
+            } else {
+                vignette.classList.remove('danger-pulse');
+            }
+
+            // 闪避冷却指示
+            const dodgeEl = document.getElementById('hud-dodge-status');
+            if (this.player.dodgeCooldown <= 0) {
+                dodgeEl.textContent = '就绪';
+                dodgeEl.className = 'mono-font text-emerald-400';
+            } else {
+                dodgeEl.textContent = `${this.player.dodgeCooldown.toFixed(1)}s`;
+                dodgeEl.className = 'mono-font text-amber-400';
+            }
+        }
+
+        updateEnvironmentEffects(dt) {
+            for (const item of this.flickerLights) {
+                item.timer += dt;
+                if (Math.random() < item.flickerChance * 0.25) {
+                    const dim = Math.random() > 0.5 ? 0.08 : 0.45;
+                    item.light.intensity = item.baseIntensity * dim;
+                    item.fixture.visible = dim > 0.2;
+                } else {
+                    item.light.intensity += (item.baseIntensity - item.light.intensity) * 0.35;
+                    item.fixture.visible = true;
+                }
+            }
+
+            if (Math.random() < 0.65) {
+                const imgData = this.tvCtx.createImageData(64, 64);
+                const d = imgData.data;
+                for (let i = 0; i < d.length; i += 4) {
+                    const v = Math.random() > 0.5 ? 235 : 18;
+                    d[i] = v;
+                    d[i + 1] = v;
+                    d[i + 2] = Math.min(255, v + 25);
+                    d[i + 3] = 255;
+                }
+                this.tvCtx.putImageData(imgData, 0, 0);
+                this.tvTexture.needsUpdate = true;
+                this.tvLight.intensity = 1.0 + Math.random() * 0.75;
+            }
+        }
+
+        updateCharacters(dt) {
+            const playerLookDir = new THREE.Vector3(0, 0, -1).applyEuler(new THREE.Euler(0, this.player.yaw, 0));
+            let maxDanger = 0;
+
+            // 贞子
+            this.sadako.hairStrands.forEach((strand, i) => {
+                strand.rotation.z = Math.sin(this.elapsedTime * 3.2 + i) * 0.05;
+            });
+
+            const toSadako = new THREE.Vector3().subVectors(this.sadako.pos, this.player.pos);
+            toSadako.y = 0;
+            const distSadako = toSadako.length();
+            const dirToSadako = toSadako.clone().normalize();
+            const lookingAtSadako = playerLookDir.dot(dirToSadako) > 0.78 && distSadako < 13;
+
+            this.sadako.group.lookAt(this.player.pos.x, 0, this.player.pos.z);
+
+            if (lookingAtSadako) {
+                this.sadako.stareTimer += dt;
+                if (Math.random() < 0.12) {
+                    this.audio.playTVStaticBurst(0.18, 0.18);
+                    this.sadako.pos.addScaledVector(dirToSadako, -0.55);
+                    this.sadako.group.position.copy(this.sadako.pos);
+                }
+                if (this.sadako.stareTimer > 2.4 && this.player.invulnerableTimer <= 0) {
+                    this.triggerJumpScare('SADAKO', '你直视了从屏幕中爬出的贞子，黑暗与雪花噪点吞噬了你的意识。');
+                    return;
+                }
+            } else {
+                this.sadako.stareTimer = Math.max(0, this.sadako.stareTimer - dt * 0.6);
+                this.sadako.teleportCooldown -= dt;
+                if (this.collectedCount >= 1 && this.sadako.teleportCooldown <= 0 && distSadako > 11) {
+                    this.sadako.teleportCooldown = 9.0 + Math.random() * 5.0;
+                    const behindPos = this.player.pos.clone().addScaledVector(playerLookDir, -5.5);
+                    behindPos.x = Math.max(-2.0, Math.min(2.0, behindPos.x));
+                    behindPos.z = Math.max(-14.5, Math.min(15.5, behindPos.z));
+                    behindPos.y = 0;
+                    this.sadako.pos.copy(behindPos);
+                    this.sadako.group.position.copy(this.sadako.pos);
+                    this.audio.playTVStaticBurst(0.24, 0.35);
+                }
+            }
+
+            if (distSadako < 1.55 && this.player.invulnerableTimer <= 0) {
+                this.triggerJumpScare('SADAKO', '冰冷湿漉的长发缠住了你的脖颈——贞子就在你身后。');
+                return;
+            }
+            if (distSadako < 10) {
+                maxDanger = Math.max(maxDanger, 1 - distSadako / 10);
+            }
+
+            // 小明
+            const toXM = new THREE.Vector3().subVectors(this.xiaoMing.pos, this.player.pos);
+            toXM.y = 0;
+            const distXM = toXM.length();
+            const dirToXM = toXM.clone().normalize();
+            const xmInSight = playerLookDir.dot(dirToXM) > 0.56 && distXM < 15.0;
+
+            this.xiaoMing.group.lookAt(this.player.pos.x, 0, this.player.pos.z);
+
+            if (xmInSight) {
+                this.xiaoMing.isFrozen = true;
+                const extraTilt = 0.72 + Math.sin(this.elapsedTime * 2.5) * 0.08;
+                this.xiaoMing.headGroup.rotation.z += (extraTilt - this.xiaoMing.headGroup.rotation.z) * 0.15;
+            } else {
+                this.xiaoMing.isFrozen = false;
+                if (distXM < 16.5 && (this.collectedCount >= 1 || this.player.pos.x < -2.2)) {
+                    const xmSpeed = this.player.isHoldingBreath ? 2.4 : 4.35;
+                    const step = dirToXM.clone().multiplyScalar(-xmSpeed * dt);
+                    const candidate = this.xiaoMing.pos.clone().add(step);
+                    if (Math.abs(candidate.x) < 15.5 && Math.abs(candidate.z) < 15.5) {
+                        this.xiaoMing.pos.copy(candidate);
+                        this.xiaoMing.group.position.copy(this.xiaoMing.pos);
+                    }
+                }
+            }
+
+            if (distXM < 1.45 && this.player.invulnerableTimer <= 0) {
+                this.triggerJumpScare('XIAOMING', '你移开视线的那一秒，歪着脖子的诡异小明已经贴在了你的脸前微笑。');
+                return;
+            }
+            if (distXM < 11) {
+                maxDanger = Math.max(maxDanger, 1 - distXM / 11);
+            }
+
+            // 王警卫
+            const toGuard = new THREE.Vector3().subVectors(this.player.pos, this.guardWang.pos);
+            toGuard.y = 0;
+            const distGuard = toGuard.length();
+
+            const guardForward = new THREE.Vector3(0, 0, 1).applyQuaternion(this.guardWang.group.quaternion);
+            const dirGuardToPlayer = toGuard.clone().normalize();
+            const inGuardCone = guardForward.dot(dirGuardToPlayer) > 0.84 && distGuard < 12.5;
+            const playerVisibleToGuard = inGuardCone && (!this.player.isCrouching || this.player.flashlightOn);
+
+            if (playerVisibleToGuard) {
+                if (this.guardWang.alertTimer <= 0) {
+                    this.audio.playGuardWhistle();
+                    this.narratorSpeak('“糟了，王警卫的红光照到你了！快关掉手电[F]跑进暗处！”', true);
+                }
+                this.guardWang.alertTimer = 7.0;
+                this.guardWang.lastKnownPlayerPos.copy(this.player.pos);
+            }
+
+            let targetPos;
+            let guardSpeed;
+            if (this.guardWang.alertTimer > 0) {
+                this.guardWang.alertTimer -= dt;
+                targetPos = this.guardWang.lastKnownPlayerPos;
+                guardSpeed = 3.55;
+            } else {
+                targetPos = this.guardWang.waypoints[this.guardWang.currentWaypoint];
+                guardSpeed = 1.65;
+                if (this.guardWang.pos.distanceTo(targetPos) < 1.1) {
+                    this.guardWang.currentWaypoint = (this.guardWang.currentWaypoint + 1) % this.guardWang.waypoints.length;
+                }
+            }
+
+            const moveDir = new THREE.Vector3().subVectors(targetPos, this.guardWang.pos);
+            moveDir.y = 0;
+            if (moveDir.length() > 0.1) {
+                moveDir.normalize();
+                this.guardWang.pos.addScaledVector(moveDir, guardSpeed * dt);
+                const targetAngle = Math.atan2(moveDir.x, moveDir.z);
+                this.guardWang.group.rotation.y = targetAngle;
+            }
+
+            this.guardWang.limpTimer += dt * (guardSpeed * 3.8);
+            const limpDrop = Math.max(0, Math.sin(this.guardWang.limpTimer)) * 0.14;
+            this.guardWang.group.position.set(this.guardWang.pos.x, -limpDrop, this.guardWang.pos.z);
+            this.guardWang.group.rotation.z = Math.sin(this.guardWang.limpTimer) * 0.09;
+            this.gwLegR.rotation.x = Math.sin(this.guardWang.limpTimer) * 0.55;
+            this.gwLegL.rotation.x = -Math.sin(this.guardWang.limpTimer) * 0.22;
+
+            this.guardWang.keyJingleTimer += dt * guardSpeed;
+            if (this.guardWang.keyJingleTimer > 1.45) {
+                this.guardWang.keyJingleTimer = 0;
+                this.audio.playGuardKeys(distGuard);
+            }
+
+            const gwTorchWorld = new THREE.Vector3(0.28, 1.12, 0.35).applyMatrix4(this.guardWang.group.matrixWorld);
+            this.guardRedLight.position.copy(gwTorchWorld);
+            const lookAhead = new THREE.Vector3(0, -0.35, 5.0).applyQuaternion(this.guardWang.group.quaternion);
+            this.guardRedLight.target.position.copy(gwTorchWorld).add(lookAhead);
+
+            if (distGuard < 1.35 && this.player.invulnerableTimer <= 0) {
+                this.triggerJumpScare('GUARD', '生锈的保安铁棍重重落下——王警卫抓住了擅闯禁区的你。');
+                return;
+            }
+            if (distGuard < 12) {
+                maxDanger = Math.max(maxDanger, (1 - distGuard / 12) * (this.guardWang.alertTimer > 0 ? 1.0 : 0.7));
+            }
+
+            // 讲解师
+            this.narratorChar.headGroup.lookAt(this.player.pos.x, this.player.currentHeight, this.player.pos.z);
+            const distNarrator = this.player.pos.distanceTo(this.narratorChar.pos);
+            if (distNarrator < 4.5) {
+                this.narratorSpeak('“隔着铁栅栏偷看我可不太礼貌……快去寻找档案吧，时间不多了。”');
+            }
+
+            // 危险感知提示
+            const dangerSenseEl = document.getElementById('danger-sense');
+            if (maxDanger > 0.5) {
+                dangerSenseEl.classList.remove('hidden');
+            } else {
+                dangerSenseEl.classList.add('hidden');
+            }
+
+            this.player.dangerLevel += (maxDanger - this.player.dangerLevel) * Math.min(1, dt * 4);
+            this.audio.updateHeartbeatAndFear(this.player.dangerLevel, this.player.isHoldingBreath);
+
+            // 更新BPM显示
+            const bpm = Math.round(72 + this.player.dangerLevel * 95);
+            document.getElementById('hud-bpm').textContent = `${bpm} BPM`;
+        }
+
+        triggerJumpScare(monsterType, deathReason) {
+            if (this.state === 'JUMPSCARE' || this.state === 'GAMEOVER') return;
+            if (this.player.invulnerableTimer > 0) return; // 无敌帧保护
+            this.state = 'JUMPSCARE';
+
+            if (document.pointerLockElement) {
+                document.exitPointerLock();
+            }
+
+            this.audio.playJumpScareBlast();
+
+            const scareOverlay = document.getElementById('scare-overlay');
+            scareOverlay.classList.add('scare-active');
+
+            const camForward = new THREE.Vector3(0, 0, -1).applyEuler(new THREE.Euler(this.player.pitch, this.player.yaw, 0, 'YXZ'));
+            const scarePos = this.camera.position.clone().addScaledVector(camForward, 0.58);
+
+            const scareFaceLight = new THREE.PointLight(monsterType === 'GUARD' ? 0xff2222 : 0xe2e8f0, 5.0, 3.0);
+            scareFaceLight.position.copy(this.camera.position);
+            this.scene.add(scareFaceLight);
+
+            let scareTargetGroup = this.sadako.group;
+            if (monsterType === 'XIAOMING') scareTargetGroup = this.xiaoMing.group;
+            else if (monsterType === 'GUARD') scareTargetGroup = this.guardWang.group;
+
+            scareTargetGroup.position.set(scarePos.x, this.camera.position.y - 1.52, scarePos.z);
+            scareTargetGroup.lookAt(this.camera.position.x, this.camera.position.y, this.camera.position.z);
+
+            let shakeTime = 0;
+            const shakeInterval = setInterval(() => {
+                shakeTime += 0.03;
+                this.camera.rotation.z = (Math.random() - 0.5) * 0.3;
+                this.camera.position.x += (Math.random() - 0.5) * 0.09;
+                this.camera.position.y += (Math.random() - 0.5) * 0.09;
+
+                if (shakeTime >= 1.7) {
+                    clearInterval(shakeInterval);
+                    this.scene.remove(scareFaceLight);
+                    this.camera.rotation.z = 0;
+                    scareOverlay.classList.remove('scare-active');
+                    this.showGameOver(deathReason);
+                }
+            }, 30);
+        }
+
+        showGameOver(reason) {
+            this.state = 'GAMEOVER';
+            document.getElementById('hud').classList.add('hidden');
+            document.getElementById('gameover-reason').textContent = reason;
+            document.getElementById('end-files').textContent = `${this.collectedCount} / 4`;
+            document.getElementById('end-time').textContent = this.formatTime(this.elapsedTime);
+            document.getElementById('gameover-screen').classList.remove('hidden');
+        }
+
+        triggerVictory() {
+            this.state = 'VICTORY';
+            if (document.pointerLockElement) {
+                document.exitPointerLock();
+            }
+            document.getElementById('hud').classList.add('hidden');
+            document.getElementById('win-time').textContent = this.formatTime(this.elapsedTime);
+            document.getElementById('victory-screen').classList.remove('hidden');
+        }
+
+        formatTime(sec) {
+            const m = Math.floor(sec / 60).toString().padStart(2, '0');
+            const s = Math.floor(sec % 60).toString().padStart(2, '0');
+            return `${m}:${s}`;
+        }
+
+        updateHUD() {
+            const px = this.player.pos.x;
+            const pz = this.player.pos.z;
+            let zone = '主回廊 · 中段';
+            if (px < -2.6 && pz > 2) zone = '104 废弃教室 (诡异小明)';
+            else if (px < -2.6 && pz <= -2) zone = '旧档案库房';
+            else if (px > 2.6 && pz > -1) zone = '旧放映室 (贞子 · CRT)';
+            else if (pz < -10) zone = '北翼安全出口区';
+            else if (pz > 10) zone = '主回廊 · 南入口';
+            document.getElementById('hud-zone-name').textContent = zone;
+
+            document.getElementById('hud-stamina-text').textContent = `${Math.round(this.player.stamina)}%`;
+            document.getElementById('hud-stamina-bar').style.width = `${this.player.stamina}%`;
+
+            document.getElementById('hud-battery-text').textContent = `${Math.round(this.player.battery)}%`;
+            document.getElementById('hud-battery-bar').style.width = `${this.player.battery}%`;
+
+            // 交互提示
+            let canInteract = false;
+            for (const file of this.files) {
+                if (!file.collected && this.player.pos.distanceTo(file.pos) < 2.2) {
+                    canInteract = true;
+                    break;
+                }
+            }
+            if (!canInteract && this.player.pos.distanceTo(this.exitDoor.pos) < 2.6) {
+                canInteract = true;
+            }
+            const prompt = document.getElementById('interact-prompt');
+            if (canInteract) {
+                prompt.classList.remove('hidden');
+            } else {
+                prompt.classList.add('hidden');
+            }
+
+            // 手电状态
+            const flashlightState = document.getElementById('hud-flashlight-state');
+            if (this.player.flashlightOn) {
+                flashlightState.textContent = '[开启]';
+                flashlightState.className = 'text-amber-400';
+            } else {
+                flashlightState.textContent = '[关闭]';
+                flashlightState.className = 'text-stone-500';
+            }
+
+            // 低电量警告
+            const batteryBar = document.getElementById('hud-battery-bar');
+            if (this.player.battery < 20) {
+                batteryBar.classList.add('battery-low');
+            } else {
+                batteryBar.classList.remove('battery-low');
+            }
+
+            // 感知冷却提示
+            const senseEl = document.getElementById('danger-sense');
+            // 已在updateCharacters中处理
+        }
+
+        animate() {
+            requestAnimationFrame(() => this.animate());
+
+            const dt = Math.min(0.1, this.clock.getDelta());
+            if (this.state === 'PLAYING') {
+                this.elapsedTime += dt;
+                this.updatePlayer(dt);
+                this.updateEnvironmentEffects(dt);
+                this.updateCharacters(dt);
+                this.updateHUD();
+
+                // 动态心电图
+                this.drawECG();
+            } else if (this.state === 'DOSSIER') {
+                // 暂停时只渲染场景
+            }
+
+            this.renderer.render(this.scene, this.camera);
+        }
+
+        drawECG() {
+            const canvas = document.getElementById('ecg-canvas');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            const w = canvas.width;
+            const h = canvas.height;
+            ctx.clearRect(0, 0, w, h);
+            ctx.fillStyle = '#0a0a0c';
+            ctx.fillRect(0, 0, w, h);
+
+            // 动态波形（基于时间和心率）
+            const bpm = 72 + this.player.dangerLevel * 95;
+            const beatInterval = 60 / bpm;
+            const now = performance.now() / 1000;
+            const phase = (now % beatInterval) / beatInterval;
+
+            ctx.strokeStyle = this.player.dangerLevel > 0.5 ? '#ff4444' : '#44cc88';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+
+            for (let x = 0; x < w; x++) {
+                const t = x / w;
+                let y = h / 2;
+                // 合成一个简单的心电图波形
+                const p = (t * 2 + phase) % 1;
+                if (p < 0.1) {
+                    y = h / 2 - Math.sin(p / 0.1 * Math.PI) * h * 0.4;
+                } else if (p < 0.15) {
+                    y = h / 2 + Math.sin((p - 0.1) / 0.05 * Math.PI) * h * 0.3;
+                } else if (p < 0.2) {
+                    y = h / 2 - Math.sin((p - 0.15) / 0.05 * Math.PI) * h * 0.15;
+                } else if (p < 0.25) {
+                    y = h / 2 + Math.sin((p - 0.2) / 0.05 * Math.PI) * h * 0.2;
+                } else {
+                    y = h / 2 + Math.sin(t * 40 + now * 8) * 1.5;
+                }
+                if (x === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+
+            // 网格线
+            ctx.strokeStyle = 'rgba(40, 200, 100, 0.1)';
+            ctx.lineWidth = 0.5;
+            for (let i = 1; i < 4; i++) {
+                ctx.beginPath();
+                ctx.moveTo(0, (h / 4) * i);
+                ctx.lineTo(w, (h / 4) * i);
+                ctx.stroke();
+            }
+        }
+    }
+
+    // 启动游戏
+    window.addEventListener('DOMContentLoaded', () => {
+        window.game = new MidnightCorridorGame();
+    });
+    </script>
+</body>
+</html>
